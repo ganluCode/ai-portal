@@ -28,15 +28,14 @@ import {
   SidebarMenuSubItem,
   SidebarRail
 } from '@/components/ui/sidebar';
-import { UserAvatarProfile } from '@/components/user-avatar-profile';
 import { navItems } from '@/config/nav-config';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { useFilteredNavItems } from '@/hooks/use-nav';
+import { useAuthStore } from '@/stores/auth';
 import {
   IconBell,
   IconChevronRight,
   IconChevronsDown,
-  IconCreditCard,
   IconLogout,
   IconUserCircle
 } from '@tabler/icons-react';
@@ -49,18 +48,20 @@ import { OrgSwitcher } from '../org-switcher';
 export default function AppSidebar() {
   const pathname = usePathname();
   const { isOpen } = useMediaQuery();
-  // TODO(step-5): replace with zustand auth store
-  const user = null as null | {
-    fullName: string;
-    emailAddresses: { emailAddress: string }[];
-    imageUrl?: string;
-  };
+  const { user, logout } = useAuthStore();
   const router = useRouter();
   const filteredItems = useFilteredNavItems(navItems);
 
-  React.useEffect(() => {
-    // Side effects based on sidebar state changes
-  }, [isOpen]);
+  React.useEffect(() => {}, [isOpen]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/auth/sign-in');
+  };
+
+  const initials = user?.name
+    ? user.name.slice(0, 2).toUpperCase()
+    : (user?.email.slice(0, 2).toUpperCase() ?? '?');
 
   return (
     <Sidebar collapsible='icon'>
@@ -136,13 +137,17 @@ export default function AppSidebar() {
                   size='lg'
                   className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
                 >
-                  {user && (
-                    <UserAvatarProfile
-                      className='h-8 w-8 rounded-lg'
-                      showInfo
-                      user={user}
-                    />
-                  )}
+                  <span className='bg-muted flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium'>
+                    {initials}
+                  </span>
+                  <div className='grid flex-1 text-left text-sm leading-tight'>
+                    <span className='truncate font-medium'>
+                      {user?.name || user?.email || ''}
+                    </span>
+                    <span className='text-muted-foreground truncate text-xs'>
+                      {user?.email || ''}
+                    </span>
+                  </div>
                   <IconChevronsDown className='ml-auto size-4' />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
@@ -153,34 +158,37 @@ export default function AppSidebar() {
                 sideOffset={4}
               >
                 <DropdownMenuLabel className='p-0 font-normal'>
-                  <div className='px-1 py-1.5'>
-                    {user && (
-                      <UserAvatarProfile
-                        className='h-8 w-8 rounded-lg'
-                        showInfo
-                        user={user}
-                      />
-                    )}
+                  <div className='flex items-center gap-2 px-2 py-1.5'>
+                    <span className='bg-muted flex h-8 w-8 items-center justify-center rounded-lg text-sm font-medium'>
+                      {initials}
+                    </span>
+                    <div className='grid flex-1 text-left text-sm leading-tight'>
+                      <span className='truncate font-medium'>
+                        {user?.name || user?.email}
+                      </span>
+                      <span className='text-muted-foreground truncate text-xs'>
+                        {user?.email}
+                      </span>
+                    </div>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-
                 <DropdownMenuGroup>
                   <DropdownMenuItem
                     onClick={() => router.push('/dashboard/profile')}
                   >
                     <IconUserCircle className='mr-2 h-4 w-4' />
-                    Profile
+                    个人资料
                   </DropdownMenuItem>
                   <DropdownMenuItem>
                     <IconBell className='mr-2 h-4 w-4' />
-                    Notifications
+                    通知
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push('/auth/sign-in')}>
+                <DropdownMenuItem onClick={handleLogout}>
                   <IconLogout className='mr-2 h-4 w-4' />
-                  Sign out
+                  退出登录
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
