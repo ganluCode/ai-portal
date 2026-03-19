@@ -1,5 +1,8 @@
 import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs';
+import createNextIntlPlugin from 'next-intl/plugin';
+
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 // Define the base Next.js configuration
 const baseConfig: NextConfig = {
@@ -9,20 +12,13 @@ const baseConfig: NextConfig = {
         protocol: 'https',
         hostname: 'api.slingacademy.com',
         port: ''
-      },
-      {
-        protocol: 'https',
-        hostname: 'img.clerk.com',
-        port: ''
-      },
-      {
-        protocol: 'https',
-        hostname: 'clerk.com',
-        port: ''
       }
     ]
   },
-  transpilePackages: ['geist']
+  transpilePackages: ['geist'],
+  experimental: {
+    optimizePackageImports: ['@tabler/icons-react']
+  }
 };
 
 let configWithPlugins = baseConfig;
@@ -63,5 +59,5 @@ if (!process.env.NEXT_PUBLIC_SENTRY_DISABLED) {
   });
 }
 
-const nextConfig = configWithPlugins;
+const nextConfig = withNextIntl(configWithPlugins);
 export default nextConfig;

@@ -1,0 +1,37 @@
+{
+  "nav": {
+    "overview": "概览",
+    "products": "产品",
+    "kanban": "看板",
+    "profile": "个人资料",
+    "workspaces": "工作空间",
+    "billing": "账单",
+    "settings": "设置"
+  },
+  "auth": {
+    "signIn": "登录",
+    "signUp": "注册",
+    "signOut": "退出",
+    "email": "邮箱",
+    "password": "密码",
+    "confirmPassword": "确认密码",
+    "forgotPassword": "忘记密码",
+    "noAccount": "还没有账号？",
+    "hasAccount": "已有账号？"
+  },
+  "common": {
+    "loading": "加载中...",
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "新建",
+    "search": "搜索",
+    "comingSoon": "即将上线"
+  },
+  "workspace": {
+    "title": "工作空间",
+    "description": "管理你的工作空间"
+  }
+}

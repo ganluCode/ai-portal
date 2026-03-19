@@ -1,12 +1,6 @@
-import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 
-export default async function Page() {
-  const { userId } = await auth();
-
-  if (!userId) {
-    return redirect('/auth/sign-in');
-  } else {
-    redirect('/dashboard/overview');
-  }
+export default function Page() {
+  // TODO(step-5): add real auth check via JWT cookie
+  redirect('/dashboard/overview');
 }

@@ -1,5 +1,3 @@
-'use client';
-
 import PageContainer from '@/components/layout/page-container';
 import {
   Card,
@@ -8,59 +6,24 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import { useOrganization } from '@clerk/nextjs';
-import { PricingTable } from '@clerk/nextjs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Info } from 'lucide-react';
-import { billingInfoContent } from '@/config/infoconfig';
 
 export default function BillingPage() {
-  const { organization, isLoaded } = useOrganization();
-
   return (
     <PageContainer
-      isloading={!isLoaded}
-      access={!!organization}
-      accessFallback={
-        <div className='flex min-h-[400px] items-center justify-center'>
-          <div className='space-y-2 text-center'>
-            <h2 className='text-2xl font-semibold'>No Organization Selected</h2>
-            <p className='text-muted-foreground'>
-              Please select or create an organization to view billing
-              information.
-            </p>
-          </div>
-        </div>
-      }
-      infoContent={billingInfoContent}
       pageTitle='Billing & Plans'
-      pageDescription={`Manage your subscription and usage limits for ${organization?.name}`}
+      pageDescription='Manage your subscription'
     >
-      <div className='space-y-6'>
-        {/* Info Alert */}
-        <Alert>
-          <Info className='h-4 w-4' />
-          <AlertDescription>
-            Plans and subscriptions are managed through Clerk Billing. Subscribe
-            to a plan to unlock features and higher limits.
-          </AlertDescription>
-        </Alert>
-
-        {/* Clerk Pricing Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Available Plans</CardTitle>
-            <CardDescription>
-              Choose a plan that fits your organization's needs
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className='mx-auto max-w-4xl'>
-              <PricingTable for='organization' />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Billing</CardTitle>
+          <CardDescription>
+            Billing management will be available here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className='text-muted-foreground text-sm'>Coming soon.</p>
+        </CardContent>
+      </Card>
     </PageContainer>
   );
 }
