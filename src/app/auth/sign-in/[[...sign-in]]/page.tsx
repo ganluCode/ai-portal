@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <SignInViewPage stars={0} />;
+  return <SignInViewPage />;
 }

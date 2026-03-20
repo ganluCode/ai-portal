@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import app from '../app';
 
-// Mock prisma
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
@@ -11,7 +10,6 @@ vi.mock('@/lib/prisma', () => ({
   }
 }));
 
-// Mock bcryptjs
 vi.mock('bcryptjs', () => ({
   default: {
     hash: vi.fn().mockResolvedValue('hashed_password'),
@@ -25,10 +23,13 @@ import bcrypt from 'bcryptjs';
 const mockUser = {
   id: 'user-1',
   email: 'test@example.com',
-  name: 'Test User',
+  name: 'testuser',
   password: 'hashed_password',
   role: 'USER' as const,
   avatar: null,
+  isActive: true,
+  apiKeyHash: null,
+  preferences: null,
   createdAt: new Date(),
   updatedAt: new Date()
 };
@@ -36,6 +37,7 @@ const mockUser = {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.JWT_SECRET = 'test-secret-at-least-32-chars-long!!';
+  process.env.BAIZE_MODE = 'mock';
 });
 
 describe('POST /api/auth/register', () => {
@@ -49,7 +51,7 @@ describe('POST /api/auth/register', () => {
       body: JSON.stringify({
         email: 'test@example.com',
         password: 'password123',
-        name: 'Test User'
+        name: 'testuser'
       })
     });
 
@@ -76,7 +78,7 @@ describe('POST /api/auth/register', () => {
 });
 
 describe('POST /api/auth/login', () => {
-  it('returns token on valid credentials', async () => {
+  it('returns token on valid email credentials', async () => {
     vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
     vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
 
@@ -84,7 +86,7 @@ describe('POST /api/auth/login', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: 'test@example.com',
+        identifier: 'test@example.com',
         password: 'password123'
       })
     });
@@ -92,7 +94,20 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.user.email).toBe('test@example.com');
-    // token should be set as cookie
+    expect(res.headers.get('set-cookie')).toContain('token=');
+  });
+
+  it('returns token on valid username credentials', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'testuser', password: 'password123' })
+    });
+
+    expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toContain('token=');
   });
 
@@ -104,7 +119,7 @@ describe('POST /api/auth/login', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: 'test@example.com',
+        identifier: 'test@example.com',
         password: 'wrong'
       })
     });
@@ -112,16 +127,32 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 401 on unknown email', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+  it('returns 401 for inactive user', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      ...mockUser,
+      isActive: false
+    });
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
 
     const res = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: 'nobody@example.com',
+        identifier: 'test@example.com',
         password: 'password123'
       })
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 401 on unknown identifier', async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: 'nobody', password: 'password123' })
     });
 
     expect(res.status).toBe(401);

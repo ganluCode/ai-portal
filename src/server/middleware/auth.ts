@@ -16,7 +16,7 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
   }
 
   try {
-    const payload = verifyToken(token);
+    const payload = await verifyToken(token);
     c.set('user', payload);
     await next();
   } catch {

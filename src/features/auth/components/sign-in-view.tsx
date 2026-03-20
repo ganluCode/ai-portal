@@ -12,13 +12,13 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const schema = z.object({
-  email: z.email('请输入有效的邮箱'),
+  identifier: z.string().min(1, '请输入邮箱或用户名'),
   password: z.string().min(6, '密码至少6位')
 });
 
 type FormData = z.infer<typeof schema>;
 
-export default function SignInViewPage({ stars }: { stars: number }) {
+export default function SignInViewPage() {
   const router = useRouter();
   const login = useAuthStore((s) => s.login);
 
@@ -30,7 +30,7 @@ export default function SignInViewPage({ stars }: { stars: number }) {
 
   const onSubmit = async (data: FormData) => {
     try {
-      await login(data.email, data.password);
+      await login(data.identifier, data.password);
       router.push('/dashboard/overview');
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : '登录失败');
@@ -74,22 +74,22 @@ export default function SignInViewPage({ stars }: { stars: number }) {
           <div className='text-center'>
             <h1 className='text-2xl font-bold'>登录</h1>
             <p className='text-muted-foreground mt-1 text-sm'>
-              输入你的账号和密码
+              使用邮箱或用户名登录
             </p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
             <div className='space-y-1'>
-              <Label htmlFor='email'>邮箱</Label>
+              <Label htmlFor='identifier'>邮箱或用户名</Label>
               <Input
-                id='email'
-                type='email'
-                placeholder='admin@ai-portal.local'
-                {...register('email')}
+                id='identifier'
+                type='text'
+                placeholder='admin@ai-portal.local 或 admin'
+                {...register('identifier')}
               />
-              {errors.email && (
+              {errors.identifier && (
                 <p className='text-destructive text-xs'>
-                  {errors.email.message}
+                  {errors.identifier.message}
                 </p>
               )}
             </div>
