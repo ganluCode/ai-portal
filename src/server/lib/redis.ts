@@ -42,15 +42,20 @@ class MockRedis implements RedisClient {
 // class RealRedis implements RedisClient { ... }
 
 // ── 单例 ────────────────────────────────────────────────────
+// 使用 globalThis 防止 Next.js 热重载时内存 store 被重置
+const globalForRedis = globalThis as unknown as { mockRedis: MockRedis };
+
 function createRedis(): RedisClient {
   if (process.env.REDIS_MODE === 'real') {
-    // return new RealRedis(process.env.REDIS_URL!);
     throw new Error('Real Redis not implemented yet. Set REDIS_MODE=mock');
   }
-  return new MockRedis();
+  if (!globalForRedis.mockRedis) {
+    globalForRedis.mockRedis = new MockRedis();
+  }
+  return globalForRedis.mockRedis;
 }
 
-// 测试环境每次创建新实例，避免状态泄漏
+// 测试环境每次创建新实例，避免测试间状态泄漏
 export const redis =
   process.env.NODE_ENV === 'test' ? new MockRedis() : createRedis();
 
