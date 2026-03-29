@@ -1,0 +1,21 @@
+import { defineConfig } from 'orval';
+
+export default defineConfig({
+  baize: {
+    input: {
+      target: './openapi/baize.json'
+    },
+    output: {
+      mode: 'tags-split', // 按 tag 分文件（auth.ts / agents.ts 等）
+      target: './src/lib/api/baize',
+      client: 'fetch',
+      tsConfig: './tsconfig.orval.json',
+      override: {
+        mutator: {
+          path: './src/lib/api/baize/custom-fetch.ts',
+          name: 'customFetch'
+        }
+      }
+    }
+  }
+});

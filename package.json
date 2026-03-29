@@ -21,7 +21,8 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "orval": "orval"
   },
   "lint-staged": {
     "**/*.{js,jsx,tsx,ts,css,less,scss,sass}": [
@@ -132,6 +133,7 @@
     "husky": "^9.1.7",
     "jsdom": "^29.0.0",
     "lint-staged": "^15.2.11",
+    "orval": "^8.6.2",
     "prettier": "3.4.2",
     "prettier-plugin-tailwindcss": "^0.6.11",
     "tsx": "^4.21.0",
