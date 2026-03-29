@@ -1,40 +1,8 @@
 import { NavItem } from '@/types';
 
-/**
- * Navigation configuration with RBAC support
- *
- * This configuration is used for both the sidebar navigation and Cmd+K bar.
- *
- * RBAC Access Control:
- * Each navigation item can have an `access` property that controls visibility
- * based on permissions, plans, features, roles, and organization context.
- *
- * Examples:
- *
- * 1. Require organization:
- *    access: { requireOrg: true }
- *
- * 2. Require specific permission:
- *    access: { requireOrg: true, permission: 'org:teams:manage' }
- *
- * 3. Require specific plan:
- *    access: { plan: 'pro' }
- *
- * 4. Require specific feature:
- *    access: { feature: 'premium_access' }
- *
- * 5. Require specific role:
- *    access: { role: 'admin' }
- *
- * 6. Multiple conditions (all must be true):
- *    access: { requireOrg: true, permission: 'org:teams:manage', plan: 'pro' }
- *
- * Note: The `visible` function is deprecated but still supported for backward compatibility.
- * Use the `access` property for new items.
- */
 export const navItems: NavItem[] = [
   {
-    title: 'Dashboard',
+    title: '概览',
     url: '/dashboard/overview',
     icon: 'dashboard',
     isActive: false,
@@ -42,80 +10,81 @@ export const navItems: NavItem[] = [
     items: []
   },
   {
-    title: 'Workspaces',
-    url: '/dashboard/workspaces',
-    icon: 'workspace',
-    isActive: false,
-    items: []
-  },
-  {
-    title: 'Teams',
-    url: '/dashboard/workspaces/team',
-    icon: 'teams',
-    isActive: false,
-    items: [],
-    // Require organization to be active
-    access: { requireOrg: true }
-    // Alternative: require specific permission
-    // access: { requireOrg: true, permission: 'org:teams:view' }
-  },
-  {
-    title: 'Product',
-    url: '/dashboard/product',
-    icon: 'product',
-    shortcut: ['p', 'p'],
-    isActive: false,
-    items: []
-  },
-  {
-    title: 'Kanban',
-    url: '/dashboard/kanban',
-    icon: 'kanban',
-    shortcut: ['k', 'k'],
-    isActive: false,
-    items: []
-  },
-  {
-    title: 'Pro',
-    url: '#', // Placeholder as there is no direct link for the parent
-    icon: 'pro',
+    title: '白泽',
+    url: '#',
+    icon: 'agent',
     isActive: true,
     items: [
       {
-        title: 'Exclusive',
-        url: '/dashboard/exclusive',
-        icon: 'exclusive',
-        shortcut: ['m', 'm']
+        title: 'Agent 管理',
+        url: '/dashboard/baize/agents',
+        icon: 'agent'
+      },
+      {
+        title: '对话',
+        url: '/dashboard/baize/chat',
+        icon: 'chat'
+      },
+      {
+        title: '会话记录',
+        url: '/dashboard/baize/sessions',
+        icon: 'sessions'
+      },
+      {
+        title: '任务',
+        url: '/dashboard/baize/tasks',
+        icon: 'tasks'
+      },
+      {
+        title: '模型配置',
+        url: '/dashboard/baize/llm',
+        icon: 'llm',
+        access: { role: 'admin' }
       }
     ]
   },
   {
-    title: 'Account',
-    url: '#', // Placeholder as there is no direct link for the parent
-    icon: 'account',
-    isActive: true,
+    title: 'Huginn',
+    url: '#',
+    icon: 'huginn',
+    isActive: false,
     items: [
       {
-        title: 'Profile',
-        url: '/dashboard/profile',
-        icon: 'profile',
-        shortcut: ['m', 'm']
+        title: '工作流',
+        url: '/dashboard/huginn/workflows',
+        icon: 'huginn'
+      }
+    ]
+  },
+  {
+    title: '谛听',
+    url: '#',
+    icon: 'diting',
+    isActive: false,
+    items: [
+      {
+        title: '监控',
+        url: '/dashboard/diting/monitor',
+        icon: 'diting'
+      }
+    ]
+  },
+  {
+    title: '系统管理',
+    url: '#',
+    icon: 'systemAdmin',
+    isActive: false,
+    items: [
+      {
+        title: '用户管理',
+        url: '/dashboard/system/users',
+        icon: 'teams',
+        access: { role: 'admin' }
       },
       {
-        title: 'Billing',
-        url: '/dashboard/billing',
-        icon: 'billing',
-        shortcut: ['b', 'b'],
-        // Only show billing if in organization context
-        access: { requireOrg: true }
-        // Alternative: require billing management permission
-        // access: { requireOrg: true, permission: 'org:manage:billing' }
-      },
-      {
-        title: 'Login',
-        shortcut: ['l', 'l'],
-        url: '/',
-        icon: 'login'
+        title: '个人设置',
+        url: '/dashboard/system/profile',
+        icon: 'profile'
       }
     ]
   }

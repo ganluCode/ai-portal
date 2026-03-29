@@ -9,7 +9,7 @@ export default defineConfig({
       mode: 'tags-split', // 按 tag 分文件（auth.ts / agents.ts 等）
       target: './src/lib/api/baize',
       client: 'fetch',
-      tsConfig: './tsconfig.orval.json',
+      tsconfig: './tsconfig.orval.json',
       override: {
         mutator: {
           path: './src/lib/api/baize/custom-fetch.ts',
