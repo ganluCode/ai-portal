@@ -13,5 +13,11 @@ export const modules: Record<string, ModuleConfig> = {
     apiUrl: process.env.BAIZE_API_URL ?? '',
     apiKey: process.env.BAIZE_API_KEY ?? '',
     enabled: !!(process.env.BAIZE_API_URL && process.env.BAIZE_API_KEY)
+  },
+  diting: {
+    name: 'Diting',
+    apiUrl: process.env.DITING_API_URL ?? '',
+    apiKey: process.env.DITING_API_KEY ?? '',
+    enabled: !!(process.env.DITING_API_URL && process.env.DITING_API_KEY)
   }
 };
