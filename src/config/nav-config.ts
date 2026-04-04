@@ -63,8 +63,8 @@ export const navItems: NavItem[] = [
     isActive: false,
     items: [
       {
-        title: '监控',
-        url: '/dashboard/diting/monitor',
+        title: '项目管理',
+        url: '/dashboard/diting/projects',
         icon: 'diting'
       }
     ]
