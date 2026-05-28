@@ -193,51 +193,51 @@ export const getSessionApiV1SessionsSessionIdGet = async (
 };
 
 /**
- * Archive a session owned by the authenticated user.
+ * Update a session (title and/or status).
 
 Returns:
-    SessionResponse with updated status.
+    SessionResponse with updated fields.
 
 Raises:
-    HTTPException: 401 if not authenticated, 403 if not owner, 422 if invalid status.
- * @summary Archive Session
+    HTTPException: 401 if not authenticated, 403 if not owner.
+ * @summary Update Session
  */
-export type archiveSessionApiV1SessionsSessionIdPatchResponse200 = {
+export type updateSessionApiV1SessionsSessionIdPatchResponse200 = {
   data: SessionResponse;
   status: 200;
 };
 
-export type archiveSessionApiV1SessionsSessionIdPatchResponse422 = {
+export type updateSessionApiV1SessionsSessionIdPatchResponse422 = {
   data: HTTPValidationError;
   status: 422;
 };
 
-export type archiveSessionApiV1SessionsSessionIdPatchResponseSuccess =
-  archiveSessionApiV1SessionsSessionIdPatchResponse200 & {
+export type updateSessionApiV1SessionsSessionIdPatchResponseSuccess =
+  updateSessionApiV1SessionsSessionIdPatchResponse200 & {
     headers: Headers;
   };
-export type archiveSessionApiV1SessionsSessionIdPatchResponseError =
-  archiveSessionApiV1SessionsSessionIdPatchResponse422 & {
+export type updateSessionApiV1SessionsSessionIdPatchResponseError =
+  updateSessionApiV1SessionsSessionIdPatchResponse422 & {
     headers: Headers;
   };
 
-export type archiveSessionApiV1SessionsSessionIdPatchResponse =
-  | archiveSessionApiV1SessionsSessionIdPatchResponseSuccess
-  | archiveSessionApiV1SessionsSessionIdPatchResponseError;
+export type updateSessionApiV1SessionsSessionIdPatchResponse =
+  | updateSessionApiV1SessionsSessionIdPatchResponseSuccess
+  | updateSessionApiV1SessionsSessionIdPatchResponseError;
 
-export const getArchiveSessionApiV1SessionsSessionIdPatchUrl = (
+export const getUpdateSessionApiV1SessionsSessionIdPatchUrl = (
   sessionId: string
 ) => {
   return `/api/v1/sessions/${sessionId}`;
 };
 
-export const archiveSessionApiV1SessionsSessionIdPatch = async (
+export const updateSessionApiV1SessionsSessionIdPatch = async (
   sessionId: string,
   sessionUpdate: SessionUpdate,
   options?: RequestInit
-): Promise<archiveSessionApiV1SessionsSessionIdPatchResponse> => {
-  return customFetch<archiveSessionApiV1SessionsSessionIdPatchResponse>(
-    getArchiveSessionApiV1SessionsSessionIdPatchUrl(sessionId),
+): Promise<updateSessionApiV1SessionsSessionIdPatchResponse> => {
+  return customFetch<updateSessionApiV1SessionsSessionIdPatchResponse>(
+    getUpdateSessionApiV1SessionsSessionIdPatchUrl(sessionId),
     {
       ...options,
       method: 'PATCH',
@@ -302,7 +302,12 @@ export const deleteSessionApiV1SessionsSessionIdDelete = async (
 /**
  * Return paginated messages for a session owned by the authenticated user.
 
-Messages are ordered by created_at ascending.
+Supports two pagination modes:
+- **before**: Cursor-based — return ``limit`` messages older than this message ID.
+  Used for "load earlier" when scrolling up in chat UI.
+- **offset**: Traditional offset pagination.
+
+Messages are always returned in chronological order (oldest first).
 
 Returns:
     MessageListResponse with items and total count.

@@ -8,7 +8,6 @@ import type {
   AgentCreate,
   AgentResponse,
   AgentUpdate,
-  ChatRequest,
   HTTPValidationError
 } from '../baizeAPI.schemas';
 
@@ -264,70 +263,6 @@ export const deleteAgentApiV1AgentsAgentIdDelete = async (
     {
       ...options,
       method: 'DELETE'
-    }
-  );
-};
-
-/**
- * Stream a chat turn as server-sent events.
-
-Returns:
-    EventSourceResponse with Content-Type: text/event-stream.
-    Emits token, tool_call, tool_result, done, and error events.
-
-Raises:
-    HTTPException: 401 if not authenticated (before SSE begins).
-    422 if message is empty.
- * @summary Chat With Agent
- */
-export type chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse200 =
-  {
-    data: unknown;
-    status: 200;
-  };
-
-export type chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse422 =
-  {
-    data: HTTPValidationError;
-    status: 422;
-  };
-
-export type chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponseSuccess =
-  chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse200 & {
-    headers: Headers;
-  };
-export type chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponseError =
-  chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse422 & {
-    headers: Headers;
-  };
-
-export type chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse =
-  | chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponseSuccess
-  | chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponseError;
-
-export const getChatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostUrl = (
-  agentId: string,
-  sessionId: string
-) => {
-  return `/api/v1/agents/${agentId}/sessions/${sessionId}/chat`;
-};
-
-export const chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPost = async (
-  agentId: string,
-  sessionId: string,
-  chatRequest: ChatRequest,
-  options?: RequestInit
-): Promise<chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse> => {
-  return customFetch<chatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostResponse>(
-    getChatWithAgentApiV1AgentsAgentIdSessionsSessionIdChatPostUrl(
-      agentId,
-      sessionId
-    ),
-    {
-      ...options,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...options?.headers },
-      body: JSON.stringify(chatRequest)
     }
   );
 };

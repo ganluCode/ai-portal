@@ -1,65 +1,84 @@
 /**
- * BaizeAuthClient — 封装对 Baize 认证接口的调用
+ * BaizeAuthClient — 直接调用 Baize 真实 API 完成认证
  *
- * BAIZE_MODE=mock  → 自签 JWT + 写内存 Redis（默认）
- * BAIZE_MODE=real  → 调用真实 Baize API
+ * 不再依赖本地 JWT 签发或 Redis，所有认证状态由 Baize 管理。
+ * BAIZE_API_URL 必须配置，否则启动时报错。
  */
 
-import jwt from 'jsonwebtoken';
-import { redis, jwtKey } from './redis';
+const getBaizeUrl = () => {
+  const url = process.env.BAIZE_API_URL;
+  if (!url) throw new Error('BAIZE_API_URL is not set');
+  return url;
+};
 
-export interface BaizeTokenPayload {
-  sub: string; // user id
+export interface BaizeTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface BaizeUserResponse {
+  id: string;
   email: string;
+  name: string;
   role: string;
-  jti: string; // JWT ID，用于 Redis 查找
+  avatar: string | null;
+  preferences: Record<string, unknown> | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-const MOCK_SECRET =
-  process.env.JWT_SECRET || 'mock-secret-change-in-production';
-const JWT_TTL = 60 * 60 * 24 * 7; // 7 days
-
-// ── Mock 实现 ────────────────────────────────────────────────
-async function mockLogin(
-  payload: Omit<BaizeTokenPayload, 'jti'>
-): Promise<string> {
-  const jti = crypto.randomUUID();
-  const token = jwt.sign({ ...payload, jti }, MOCK_SECRET, {
-    expiresIn: JWT_TTL
-  });
-  // 模拟 Baize 将 JWT 写入 Redis
-  await redis.set(jwtKey(payload.sub, jti), '1', JWT_TTL);
-  return token;
-}
-
-async function mockLogout(token: string): Promise<void> {
-  try {
-    const payload = jwt.decode(token) as BaizeTokenPayload | null;
-    if (payload?.sub && payload?.jti) {
-      await redis.del(jwtKey(payload.sub, payload.jti));
+async function callBaize<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${getBaizeUrl()}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers ?? {})
     }
-  } catch {
-    // ignore
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw Object.assign(new Error(`Baize ${res.status}: ${text}`), {
+      status: res.status
+    });
   }
+  return res.json() as Promise<T>;
 }
 
-// ── Real 实现（等 Baize 建好后填充）────────────────────────
-async function realLogin(
-  _payload: Omit<BaizeTokenPayload, 'jti'>
-): Promise<string> {
-  // const res = await fetch(`${process.env.BAIZE_API_URL}/api/v1/auth/login`, { ... })
-  throw new Error('Real Baize auth not implemented yet. Set BAIZE_MODE=mock');
-}
+export const baizeClient = {
+  /** 用户登录，返回 access_token */
+  async login(login: string, password: string): Promise<BaizeTokenResponse> {
+    return callBaize<BaizeTokenResponse>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ login, password })
+    });
+  },
 
-async function realLogout(_token: string): Promise<void> {
-  throw new Error('Real Baize auth not implemented yet. Set BAIZE_MODE=mock');
-}
+  /** 吊销 token（best-effort，失败不抛出） */
+  async logout(token: string): Promise<void> {
+    try {
+      await callBaize('/api/v1/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch {
+      // best-effort
+    }
+  },
 
-// ── 导出 ─────────────────────────────────────────────────────
-const isMock = process.env.BAIZE_MODE !== 'real';
+  /** 刷新 token，返回新的 TokenResponse */
+  async refresh(token: string): Promise<BaizeTokenResponse> {
+    return callBaize<BaizeTokenResponse>('/api/v1/auth/refresh', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
 
-export const baizeAuth = {
-  login: (payload: Omit<BaizeTokenPayload, 'jti'>) =>
-    isMock ? mockLogin(payload) : realLogin(payload),
-  logout: (token: string) => (isMock ? mockLogout(token) : realLogout(token))
+  /** 获取当前用户信息 */
+  async getMe(token: string): Promise<BaizeUserResponse> {
+    return callBaize<BaizeUserResponse>('/api/v1/users/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  }
 };

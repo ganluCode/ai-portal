@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { authMiddleware } from '../middleware/auth';
 import { modules } from '@/config/modules';
 import { ProxyClient } from '../lib/proxy-client';
@@ -23,8 +24,10 @@ proxy.all('/:module/*', async (c) => {
     );
   }
 
-  // 拼接目标路径：去掉 /api/proxy/:module 前缀
-  const upstreamPath = '/' + c.req.param('*');
+  // 从完整请求 URL 中剥掉 /api/proxy/:module 前缀，保留剩余 path + query
+  const url = new URL(c.req.url);
+  const prefix = `/api/proxy/${moduleName}`;
+  const upstreamPath = url.pathname.slice(prefix.length) + url.search;
 
   // 转发请求体（GET/HEAD 没有 body）
   const hasBody = !['GET', 'HEAD'].includes(c.req.method);
@@ -38,11 +41,17 @@ proxy.all('/:module/*', async (c) => {
     if (val) upstreamHeaders[key] = val;
   }
 
-  const client = new ProxyClient(mod.apiUrl, mod.apiKey);
+  // 用户 JWT 从 cookie 读取，转发为 Authorization: Bearer
+  // 非 baize 模块额外通过 X-API-KEY 做静态鉴权
+  const userToken = getCookie(c, 'token');
+  const client = new ProxyClient(mod.apiUrl, {
+    staticApiKey: mod.useStaticApiKey ? mod.apiKey : undefined
+  });
   const upstream = await client.request(upstreamPath, {
     method: c.req.method,
     headers: upstreamHeaders,
-    body
+    body,
+    userToken
   });
 
   // SSE 流式透传
@@ -52,7 +61,8 @@ proxy.all('/:module/*', async (c) => {
       status: upstream.status,
       headers: {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Content-Encoding': 'identity',
+        'Cache-Control': 'no-cache, no-transform',
         Connection: 'keep-alive',
         'X-Accel-Buffering': 'no'
       }

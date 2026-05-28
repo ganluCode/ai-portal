@@ -7,6 +7,41 @@
 export type AgentCreateModelConfig = { [key: string]: unknown } | null;
 
 /**
+ * 分层 prompt 配置。所有层都可选，按存在的层依次组装。
+ */
+export interface AgentPrompts {
+  soul?: string | null;
+  behavior?: string | null;
+}
+
+/**
+ * 工具配置结构。
+ */
+export interface ToolsConfig {
+  builtin?: string[];
+  mcp_servers?: string[];
+  skills?: string[];
+}
+
+/**
+ * 记忆策略配置。
+ */
+export interface MemoryConfig {
+  auto_recall?: boolean;
+  shared?: boolean;
+  top_k?: number;
+}
+
+/**
+ * 执行护栏配置。
+ */
+export interface GuardrailsConfig {
+  max_tool_calls?: number;
+  timeout_seconds?: number;
+  max_tokens_per_turn?: number | null;
+}
+
+/**
  * Request body for creating a new agent configuration.
  */
 export interface AgentCreate {
@@ -15,13 +50,15 @@ export interface AgentCreate {
    * @maxLength 100
    */
   name: string;
-  system_prompt: string;
-  tools: string[];
   description?: string | null;
+  agent_type?: string;
+  prompts?: AgentPrompts;
   model_config?: AgentCreateModelConfig;
-  auto_memory_recall?: boolean | null;
-  shared_memory?: boolean | null;
-  is_default?: boolean;
+  tools?: ToolsConfig;
+  sub_agents?: string[] | null;
+  memory_config?: MemoryConfig;
+  guardrails?: GuardrailsConfig;
+  set_as_default?: boolean;
 }
 
 export type AgentResponseModelConfig = { [key: string]: unknown } | null;
@@ -34,12 +71,14 @@ export interface AgentResponse {
   user_id: string;
   name: string;
   description: string | null;
-  system_prompt: string;
-  tools: string[] | null;
+  agent_type: string;
+  prompts: AgentPrompts | null;
   model_config?: AgentResponseModelConfig;
-  auto_memory_recall: boolean | null;
-  shared_memory: boolean | null;
-  is_default: boolean;
+  tools: ToolsConfig | null;
+  sub_agents: string[] | null;
+  memory_config: MemoryConfig | null;
+  guardrails: GuardrailsConfig | null;
+  is_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -51,13 +90,33 @@ export type AgentUpdateModelConfig = { [key: string]: unknown } | null;
  */
 export interface AgentUpdate {
   name?: string | null;
-  system_prompt?: string | null;
-  tools?: string[] | null;
   description?: string | null;
+  agent_type?: string | null;
+  prompts?: AgentPrompts | null;
   model_config?: AgentUpdateModelConfig;
-  auto_memory_recall?: boolean | null;
-  shared_memory?: boolean | null;
-  is_default?: boolean | null;
+  tools?: ToolsConfig | null;
+  sub_agents?: string[] | null;
+  memory_config?: MemoryConfig | null;
+  guardrails?: GuardrailsConfig | null;
+  set_as_default?: boolean | null;
+  is_enabled?: boolean | null;
+}
+
+export interface OpenAIMessage {
+  role: string;
+  content: string;
+}
+
+export interface ChatCompletionRequest {
+  model: string;
+  messages: OpenAIMessage[];
+  stream?: boolean;
+  temperature?: number | null;
+  max_tokens?: number | null;
+  user?: string | null;
+  agent_id?: string | null;
+  session_id?: string | null;
+  [key: string]: unknown;
 }
 
 export type ChatMessageResponseToolCalls = { [key: string]: unknown } | null;
@@ -89,20 +148,89 @@ export interface ChatMessageResponse {
 }
 
 /**
- * Request body for the chat SSE endpoint.
- */
-export interface ChatRequest {
-  /** @minLength 1 */
-  message: string;
-}
-
-/**
  * Request body for POST /api/v1/chat.
  */
 export interface ChatStreamRequest {
   message: string;
   agent_id?: string | null;
   session_id?: string | null;
+}
+
+/**
+ * Empty body — just creates a new conversation.
+ */
+export interface ConversationCreateRequest {
+  [key: string]: unknown;
+}
+
+export interface ConversationObject {
+  id: string;
+  object?: string;
+  created_at?: number;
+}
+
+export type FieldDescriptorType =
+  (typeof FieldDescriptorType)[keyof typeof FieldDescriptorType];
+
+export const FieldDescriptorType = {
+  text: 'text',
+  textarea: 'textarea',
+  int: 'int',
+  bool: 'bool',
+  select: 'select',
+  multi_select: 'multi_select',
+  date: 'date'
+} as const;
+
+export type FieldDescriptorConstraints = { [key: string]: unknown } | null;
+
+/**
+ * A single selectable option for select / multi_select fields.
+ */
+export interface FieldOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+/**
+ * Describes one form field.
+
+Attributes:
+    key: Dot-notation path (e.g. ``guardrails.max_tool_calls``).
+    label: Display label (Chinese).
+    description: Help text shown under the field.
+    type: Determines which frontend widget to render.
+    required: Whether the field is mandatory.
+    default: Default value for new records.
+    constraints: Type-specific validation rules:
+        text/textarea: ``{"min_length": int, "max_length": int}``
+        int: ``{"min": int, "max": int}``
+        multi_select: ``{"max_items": int}``
+    options: Pre-resolved selectable options (always populated for select types).
+    options_ref: Semantic hint that options are dynamic (e.g. ``"llm_models_chat"``).
+        Frontend may show a refresh button for such fields.
+ */
+export interface FieldDescriptor {
+  key: string;
+  label: string;
+  description?: string | null;
+  type: FieldDescriptorType;
+  required?: boolean;
+  default?: unknown;
+  constraints?: FieldDescriptorConstraints;
+  options?: FieldOption[] | null;
+  options_ref?: string | null;
+}
+
+/**
+ * Visual grouping of fields for form layout.
+ */
+export interface FieldGroup {
+  key: string;
+  label: string;
+  sort?: number;
+  fields: FieldDescriptor[];
 }
 
 export type ValidationErrorCtx = { [key: string]: unknown };
@@ -135,11 +263,58 @@ export interface MessageListResponse {
   total: number;
 }
 
+export interface ModelObject {
+  id: string;
+  object?: string;
+  created?: number;
+  owned_by?: string;
+}
+
+export interface ModelListResponse {
+  object?: string;
+  data: ModelObject[];
+}
+
+/**
+ * Reasoning/thinking configuration.
+ */
+export interface ReasoningConfig {
+  effort?: string;
+}
+
 /**
  * Response for API key reset — contains new plaintext key.
  */
 export interface ResetKeyResponse {
   api_key: string;
+}
+
+/**
+ * Top-level response for ``GET /api/v1/metadata/{resource}``.
+ */
+export interface ResourceMetadata {
+  resource: string;
+  groups: FieldGroup[];
+}
+
+export type ResponsesRequestInput =
+  | string
+  | OpenAIMessage[]
+  | { [key: string]: unknown }[];
+
+export interface ResponsesRequest {
+  model: string;
+  input: ResponsesRequestInput;
+  instructions?: string | null;
+  conversation?: string | null;
+  previous_response_id?: string | null;
+  stream?: boolean;
+  store?: boolean;
+  temperature?: number | null;
+  max_output_tokens?: number | null;
+  reasoning?: ReasoningConfig | null;
+  agent_id?: string | null;
+  [key: string]: unknown;
 }
 
 /**
@@ -153,7 +328,8 @@ export type SessionStatus = (typeof SessionStatus)[keyof typeof SessionStatus];
 
 export const SessionStatus = {
   active: 'active',
-  archived: 'archived'
+  archived: 'archived',
+  deleted: 'deleted'
 } as const;
 
 /**
@@ -165,8 +341,6 @@ export interface SessionResponse {
   agent_id: string;
   title: string | null;
   status: SessionStatus;
-  auto_memory_recall: boolean | null;
-  shared_memory: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -180,12 +354,12 @@ export interface SessionListResponse {
 }
 
 /**
- * Request body for updating a session — only archiving is supported.
+ * Request body for updating a session (title and/or status).
  */
-export const SessionUpdateValue = {
-  status: 'archived'
-} as const;
-export type SessionUpdate = typeof SessionUpdateValue;
+export interface SessionUpdate {
+  title?: string | null;
+  status?: 'active' | 'archived' | null;
+}
 
 export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
 
@@ -379,6 +553,7 @@ export type ListSessionsApiV1AgentsAgentIdSessionsGetParams = {
 export type ListMessagesApiV1SessionsSessionIdMessagesGetParams = {
   limit?: number;
   offset?: number;
+  before?: string | null;
 };
 
 export type ListTasksApiV1TasksGetParams = {
@@ -394,5 +569,7 @@ export type ListTasksApiV1TasksGetParams = {
    */
   offset?: number;
 };
+
+export type ListResourcesApiV1MetadataGet200 = { [key: string]: unknown };
 
 export type HealthHealthGet200 = { [key: string]: string };

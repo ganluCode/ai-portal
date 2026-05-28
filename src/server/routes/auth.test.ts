@@ -1,86 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import app from '../app';
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: {
-      findUnique: vi.fn(),
-      create: vi.fn()
-    }
+// Mock baizeClient
+vi.mock('../lib/baize-auth', () => ({
+  baizeClient: {
+    login: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    getMe: vi.fn()
   }
 }));
 
-vi.mock('bcryptjs', () => ({
-  default: {
-    hash: vi.fn().mockResolvedValue('hashed_password'),
-    compare: vi.fn()
-  }
-}));
+import { baizeClient } from '../lib/baize-auth';
 
-import { prisma } from '@/lib/prisma';
-import bcrypt from 'bcryptjs';
+const mockTokenRes = {
+  access_token: 'fake-jwt-token',
+  token_type: 'bearer',
+  expires_in: 604800
+};
 
-const mockUser = {
+const mockBaizeUser = {
   id: 'user-1',
   email: 'test@example.com',
   name: 'testuser',
-  password: 'hashed_password',
-  role: 'USER' as const,
+  role: 'USER',
   avatar: null,
-  isActive: true,
-  apiKeyHash: null,
   preferences: null,
-  createdAt: new Date(),
-  updatedAt: new Date()
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z'
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.JWT_SECRET = 'test-secret-at-least-32-chars-long!!';
-  process.env.BAIZE_MODE = 'mock';
-});
-
-describe('POST /api/auth/register', () => {
-  it('registers a new user', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.user.create).mockResolvedValue(mockUser);
-
-    const res = await app.request('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'test@example.com',
-        password: 'password123',
-        name: 'testuser'
-      })
-    });
-
-    expect(res.status).toBe(201);
-    const body = await res.json();
-    expect(body.user.email).toBe('test@example.com');
-    expect(body.user.password).toBeUndefined();
-  });
-
-  it('returns 409 if email already exists', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
-
-    const res = await app.request('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'test@example.com',
-        password: 'password123'
-      })
-    });
-
-    expect(res.status).toBe(409);
-  });
 });
 
 describe('POST /api/auth/login', () => {
-  it('returns token on valid email credentials', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
-    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+  it('returns user and sets cookie on valid credentials', async () => {
+    vi.mocked(baizeClient.login).mockResolvedValue(mockTokenRes);
+    vi.mocked(baizeClient.getMe).mockResolvedValue(mockBaizeUser);
 
     const res = await app.request('/api/auth/login', {
       method: 'POST',
@@ -94,45 +52,14 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.user.email).toBe('test@example.com');
+    expect(body.user.isActive).toBe(true);
+    expect(body.user.password).toBeUndefined();
     expect(res.headers.get('set-cookie')).toContain('token=');
   });
 
-  it('returns token on valid username credentials', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
-    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
-
-    const res = await app.request('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: 'testuser', password: 'password123' })
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('set-cookie')).toContain('token=');
-  });
-
-  it('returns 401 on invalid password', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(mockUser);
-    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
-
-    const res = await app.request('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        identifier: 'test@example.com',
-        password: 'wrong'
-      })
-    });
-
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 for inactive user', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({
-      ...mockUser,
-      isActive: false
-    });
-    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+  it('maps snake_case fields to camelCase', async () => {
+    vi.mocked(baizeClient.login).mockResolvedValue(mockTokenRes);
+    vi.mocked(baizeClient.getMe).mockResolvedValue(mockBaizeUser);
 
     const res = await app.request('/api/auth/login', {
       method: 'POST',
@@ -143,19 +70,38 @@ describe('POST /api/auth/login', () => {
       })
     });
 
-    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.user.isActive).toBeDefined();
+    expect(body.user.createdAt).toBeDefined();
+    expect(body.user.is_active).toBeUndefined();
   });
 
-  it('returns 401 on unknown identifier', async () => {
-    vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
+  it('returns 401 when Baize returns 401', async () => {
+    const err = Object.assign(new Error('Unauthorized'), { status: 401 });
+    vi.mocked(baizeClient.login).mockRejectedValue(err);
 
     const res = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: 'nobody', password: 'password123' })
+      body: JSON.stringify({ identifier: 'bad@example.com', password: 'wrong' })
     });
 
     expect(res.status).toBe(401);
+  });
+
+  it('returns 503 when Baize is unavailable', async () => {
+    vi.mocked(baizeClient.login).mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        identifier: 'test@example.com',
+        password: 'password123'
+      })
+    });
+
+    expect(res.status).toBe(503);
   });
 });
 
@@ -168,8 +114,22 @@ describe('GET /api/auth/me', () => {
 
 describe('POST /api/auth/logout', () => {
   it('clears the token cookie', async () => {
+    vi.mocked(baizeClient.logout).mockResolvedValue(undefined);
+
     const res = await app.request('/api/auth/logout', { method: 'POST' });
     expect(res.status).toBe(200);
     expect(res.headers.get('set-cookie')).toContain('token=;');
+  });
+
+  it('clears cookie even without existing token', async () => {
+    const res = await app.request('/api/auth/logout', { method: 'POST' });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /api/auth/refresh', () => {
+  it('returns 401 without token', async () => {
+    const res = await app.request('/api/auth/refresh', { method: 'POST' });
+    expect(res.status).toBe(401);
   });
 });

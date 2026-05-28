@@ -1,10 +1,11 @@
 import { createMiddleware } from 'hono/factory';
 import { getCookie } from 'hono/cookie';
-import { verifyToken, type JwtPayload } from '../lib/jwt';
+import { decodeToken, type TokenPayload } from '../lib/jwt';
 
 type AuthEnv = {
   Variables: {
-    user: JwtPayload;
+    user: TokenPayload;
+    token: string;
   };
 };
 
@@ -16,8 +17,9 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
   }
 
   try {
-    const payload = await verifyToken(token);
+    const payload = decodeToken(token);
     c.set('user', payload);
+    c.set('token', token);
     await next();
   } catch {
     return c.json({ error: 'Invalid token' }, 401);

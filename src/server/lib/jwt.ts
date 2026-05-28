@@ -1,27 +1,27 @@
 import jwt from 'jsonwebtoken';
-import { redis, jwtKey } from './redis';
-import type { BaizeTokenPayload } from './baize-auth';
 
-const getSecret = () => {
-  const secret = process.env.JWT_SECRET || 'mock-secret-change-in-production';
-  return secret;
-};
-
-export type { BaizeTokenPayload as JwtPayload };
+export interface TokenPayload {
+  sub: string;
+  email?: string;
+  role?: string;
+  exp?: number;
+  [key: string]: unknown;
+}
 
 /**
- * 验证 JWT：
- * 1. 验证签名与过期时间
- * 2. 查 Redis 确认未被主动失效（Baize logout 时删除）
+ * 仅解码 JWT（不验签），并检查本地过期时间。
+ *
+ * Portal 作为 BFF，不与 Baize 共享签名密钥。
+ * 真正的签名验证由 Baize 在每次上游请求时完成。
+ * 若 token 已过期则快速失败，避免无效请求到达 Baize。
  */
-export async function verifyToken(token: string): Promise<BaizeTokenPayload> {
-  const payload = jwt.verify(token, getSecret()) as BaizeTokenPayload;
-
-  const key = jwtKey(payload.sub, payload.jti);
-  const valid = await redis.get(key);
-  if (!valid) {
-    throw new Error('Token has been revoked');
+export function decodeToken(token: string): TokenPayload {
+  const payload = jwt.decode(token);
+  if (!payload || typeof payload === 'string') {
+    throw new Error('Invalid token');
   }
-
-  return payload;
+  if (payload.exp && payload.exp * 1000 < Date.now()) {
+    throw new Error('Token expired');
+  }
+  return payload as TokenPayload;
 }

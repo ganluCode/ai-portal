@@ -1,30 +1,46 @@
 /**
- * Orval 自定义 fetcher (Baize)
+ * Orval 自定义 fetcher (Diting)
  *
- * 仅限 Client Components 使用，通过 /api/proxy/baize 代理。
- * 鉴权由服务端 Hono 层从 cookie 中提取用户 JWT 后注入，前端不接触 API Key。
+ * 服务端（Server Components / Route Handlers）：
+ *   直接调用 DITING_API_URL，用 DITING_API_KEY 鉴权，无需经过代理。
  *
- * 若在 Server Components / Route Handlers 中调用，请直接使用 Hono 路由或
- * 通过代理层转发，而非走这里。
+ * 客户端（Client Components）：
+ *   通过 /api/proxy/diting 代理，鉴权由服务端 Hono 层处理，
+ *   前端不接触 API Key。
  */
+
+const isServer = typeof window === 'undefined';
+
+function getBaseUrl() {
+  if (isServer) {
+    return process.env.DITING_API_URL ?? '';
+  }
+  return '/api/proxy/diting';
+}
+
+function getAuthHeaders(): Record<string, string> {
+  if (isServer) {
+    const key = process.env.DITING_API_KEY;
+    return key ? { Authorization: `Bearer ${key}` } : {};
+  }
+  // 客户端走代理，代理自己加鉴权
+  return {};
+}
 
 /**
  * 返回 orval fetch client 约定的形状：{ status, data, headers }
+ * 泛型 T 会被推断为类似
+ *   { data: Xxx; status: 200 } | { data: HTTPValidationError; status: 422 }
+ * 的 union。
  */
 export const customFetch = async <T>(
   url: string,
   options: RequestInit & { params?: Record<string, string> } = {}
 ): Promise<T> => {
-  if (typeof window === 'undefined') {
-    throw new Error(
-      'Baize client 只能在浏览器端调用，服务端请使用 Hono 路由或代理层。'
-    );
-  }
-
   const { params, ...init } = options;
 
   // 拼接查询参数
-  let fullUrl = `/api/proxy/baize${url}`;
+  let fullUrl = `${getBaseUrl()}${url}`;
   if (params && Object.keys(params).length > 0) {
     const qs = new URLSearchParams(params).toString();
     fullUrl += (fullUrl.includes('?') ? '&' : '?') + qs;
@@ -35,6 +51,7 @@ export const customFetch = async <T>(
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeaders(),
       ...(init.headers ?? {})
     }
   });
@@ -50,7 +67,7 @@ export const customFetch = async <T>(
   }
 
   if (!res.ok) {
-    throw new BaizeApiError(res.status, data);
+    throw new DitingApiError(res.status, data);
   }
 
   return {
@@ -60,7 +77,7 @@ export const customFetch = async <T>(
   } as T;
 };
 
-export class BaizeApiError extends Error {
+export class DitingApiError extends Error {
   constructor(
     public status: number,
     public data: unknown
@@ -69,7 +86,7 @@ export class BaizeApiError extends Error {
       typeof data === 'object' && data && 'detail' in data
         ? JSON.stringify((data as { detail: unknown }).detail)
         : String(data ?? '');
-    super(`Baize API error ${status}: ${detail}`);
-    this.name = 'BaizeApiError';
+    super(`Diting API error ${status}: ${detail}`);
+    this.name = 'DitingApiError';
   }
 }

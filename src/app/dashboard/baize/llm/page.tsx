@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState, useCallback } from 'react';
 import { IconInfoCircle } from '@tabler/icons-react';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -10,30 +11,21 @@ import {
   CardDescription,
   CardFooter
 } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { listProvidersApiV1LlmProvidersGet } from '@/lib/api/baize/llm/llm';
 
-const MOCK_PROVIDERS = [
-  {
-    name: 'OpenAI',
-    type: 'openai',
-    status: 'available',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    description: 'OpenAI GPT 系列模型'
-  },
-  {
-    name: 'Anthropic',
-    type: 'anthropic',
-    status: 'available',
-    models: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
-    description: 'Anthropic Claude 系列模型'
-  },
-  {
-    name: 'Ollama',
-    type: 'ollama',
-    status: 'unavailable',
-    models: ['llama3.2', 'mistral', 'qwen2.5'],
-    description: '本地部署开源模型'
-  }
-];
+interface LlmModel {
+  id: string;
+  usage?: string[];
+}
+
+interface LlmProvider {
+  name: string;
+  type: string;
+  status: string;
+  models: LlmModel[];
+  description?: string;
+}
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'available') {
@@ -51,6 +43,25 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function Page() {
+  const [providers, setProviders] = useState<LlmProvider[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadProviders = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await listProvidersApiV1LlmProvidersGet();
+      if (res.status === 200) {
+        setProviders(res.data as unknown as LlmProvider[]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProviders();
+  }, [loadProviders]);
+
   return (
     <div className='flex flex-1 flex-col gap-6 p-6'>
       <div>
@@ -60,33 +71,60 @@ export default function Page() {
         </p>
       </div>
 
-      <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
-        {MOCK_PROVIDERS.map((provider) => (
-          <Card key={provider.type}>
-            <CardHeader>
-              <div className='flex items-center justify-between'>
-                <CardTitle className='text-lg'>{provider.name}</CardTitle>
-                <StatusBadge status={provider.status} />
-              </div>
-            </CardHeader>
-            <CardContent className='flex flex-col gap-3'>
-              <CardDescription>{provider.description}</CardDescription>
-              <div className='flex flex-wrap gap-1.5'>
-                {provider.models.map((model) => (
-                  <Badge key={model} variant='outline' className='text-xs'>
-                    {model}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-            <CardFooter>
-              <span className='text-muted-foreground font-mono text-xs'>
-                {provider.type}
-              </span>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
+      {loading ? (
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+          {[1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className='h-6 w-32' />
+              </CardHeader>
+              <CardContent className='flex flex-col gap-3'>
+                <Skeleton className='h-4 w-full' />
+                <div className='flex gap-2'>
+                  <Skeleton className='h-5 w-20' />
+                  <Skeleton className='h-5 w-20' />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : providers.length === 0 ? (
+        <Card>
+          <CardContent className='text-muted-foreground py-10 text-center text-sm'>
+            暂无可用的模型提供商
+          </CardContent>
+        </Card>
+      ) : (
+        <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+          {providers.map((provider, i) => (
+            <Card key={`${provider.type}-${i}`}>
+              <CardHeader>
+                <div className='flex items-center justify-between'>
+                  <CardTitle className='text-lg'>{provider.name}</CardTitle>
+                  <StatusBadge status={provider.status} />
+                </div>
+              </CardHeader>
+              <CardContent className='flex flex-col gap-3'>
+                {provider.description && (
+                  <CardDescription>{provider.description}</CardDescription>
+                )}
+                <div className='flex flex-wrap gap-1.5'>
+                  {(provider.models ?? []).map((model) => (
+                    <Badge key={model.id} variant='outline' className='text-xs'>
+                      {model.id}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+              <CardFooter>
+                <span className='text-muted-foreground font-mono text-xs'>
+                  {provider.type}
+                </span>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card className='border-muted bg-muted/30'>
         <CardContent className='flex items-start gap-3 pt-5'>

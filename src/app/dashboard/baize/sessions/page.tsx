@@ -1,9 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  IconArchive,
+  IconLoader2,
+  IconMessageCircle
+} from '@tabler/icons-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -12,70 +25,15 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { IconArchive, IconMessageCircle } from '@tabler/icons-react';
-
-const MOCK_SESSIONS = [
-  {
-    id: '1',
-    agent_id: '1',
-    agent_name: '通用助手',
-    title: '关于 React 18 新特性的讨论',
-    status: 'active',
-    message_count: 12,
-    created_at: '2026-03-20T10:00:00Z',
-    updated_at: '2026-03-20T11:30:00Z'
-  },
-  {
-    id: '2',
-    agent_id: '2',
-    agent_name: '代码助手',
-    title: 'TypeScript 类型体操问题',
-    status: 'active',
-    message_count: 8,
-    created_at: '2026-03-21T14:00:00Z',
-    updated_at: '2026-03-21T14:45:00Z'
-  },
-  {
-    id: '3',
-    agent_id: '1',
-    agent_name: '通用助手',
-    title: '项目规划讨论',
-    status: 'archived',
-    message_count: 25,
-    created_at: '2026-03-15T09:00:00Z',
-    updated_at: '2026-03-16T10:00:00Z'
-  },
-  {
-    id: '4',
-    agent_id: '3',
-    agent_name: '数据分析师',
-    title: '销售数据分析',
-    status: 'active',
-    message_count: 6,
-    created_at: '2026-03-22T15:00:00Z',
-    updated_at: '2026-03-22T15:30:00Z'
-  },
-  {
-    id: '5',
-    agent_id: '2',
-    agent_name: '代码助手',
-    title: 'Python 性能优化',
-    status: 'archived',
-    message_count: 18,
-    created_at: '2026-03-10T11:00:00Z',
-    updated_at: '2026-03-11T09:00:00Z'
-  },
-  {
-    id: '6',
-    agent_id: '4',
-    agent_name: '客服机器人',
-    title: '产品功能咨询',
-    status: 'active',
-    message_count: 4,
-    created_at: '2026-03-25T16:00:00Z',
-    updated_at: '2026-03-25T16:20:00Z'
-  }
-];
+import { listAgentsApiV1AgentsGet } from '@/lib/api/baize/agents/agents';
+import {
+  listSessionsApiV1AgentsAgentIdSessionsGet,
+  updateSessionApiV1SessionsSessionIdPatch
+} from '@/lib/api/baize/sessions/sessions';
+import type {
+  AgentResponse,
+  SessionResponse
+} from '@/lib/api/baize/baizeAPI.schemas';
 
 type FilterStatus = 'all' | 'active' | 'archived';
 
@@ -90,39 +48,130 @@ function formatUpdatedAt(iso: string): string {
 
 export default function SessionsPage() {
   const router = useRouter();
+
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+
+  const [sessions, setSessions] = useState<SessionResponse[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const [filter, setFilter] = useState<FilterStatus>('all');
 
-  const filtered = MOCK_SESSIONS.filter((s) => {
-    if (filter === 'all') return true;
-    return s.status === filter;
-  });
+  const [archiving, setArchiving] = useState<string | null>(null);
+
+  // Load agent list on mount
+  useEffect(() => {
+    setAgentsLoading(true);
+    listAgentsApiV1AgentsGet()
+      .then((res) => {
+        if (res.status === 200) {
+          setAgents(res.data);
+          if (res.data.length > 0) {
+            setSelectedAgentId(res.data[0].id);
+          }
+        }
+      })
+      .catch(() => toast.error('加载 Agent 列表失败'))
+      .finally(() => setAgentsLoading(false));
+  }, []);
+
+  // Load sessions when agent or filter changes
+  const loadSessions = useCallback(
+    async (agentId: string, status: FilterStatus) => {
+      if (!agentId) return;
+      setSessionsLoading(true);
+      try {
+        const res = await listSessionsApiV1AgentsAgentIdSessionsGet(
+          agentId,
+          status === 'all' ? {} : { status }
+        );
+        if (res.status === 200) {
+          setSessions(res.data.items);
+        }
+      } catch {
+        toast.error('加载会话列表失败');
+      } finally {
+        setSessionsLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (selectedAgentId) {
+      loadSessions(selectedAgentId, filter);
+    }
+  }, [selectedAgentId, filter, loadSessions]);
+
+  async function handleArchive(session: SessionResponse) {
+    setArchiving(session.id);
+    try {
+      const res = await updateSessionApiV1SessionsSessionIdPatch(session.id, {
+        status: 'archived'
+      });
+      if (res.status === 200) {
+        toast.success('会话已归档');
+        await loadSessions(selectedAgentId, filter);
+      }
+    } catch {
+      toast.error('归档失败');
+    } finally {
+      setArchiving(null);
+    }
+  }
+
+  const agentName = (agentId: string) =>
+    agents.find((a) => a.id === agentId)?.name ?? agentId;
 
   return (
     <div className='flex flex-1 flex-col gap-6 p-6'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-semibold'>会话记录</h1>
-        <div className='flex items-center gap-1'>
-          <Button
-            variant={filter === 'all' ? 'default' : 'ghost'}
-            size='sm'
-            onClick={() => setFilter('all')}
+        <div className='flex items-center gap-2'>
+          {/* Agent selector */}
+          <Select
+            value={selectedAgentId}
+            onValueChange={setSelectedAgentId}
+            disabled={agentsLoading}
           >
-            全部
-          </Button>
-          <Button
-            variant={filter === 'active' ? 'default' : 'ghost'}
-            size='sm'
-            onClick={() => setFilter('active')}
-          >
-            进行中
-          </Button>
-          <Button
-            variant={filter === 'archived' ? 'default' : 'ghost'}
-            size='sm'
-            onClick={() => setFilter('archived')}
-          >
-            已归档
-          </Button>
+            <SelectTrigger className='w-[180px]'>
+              <SelectValue
+                placeholder={agentsLoading ? '加载中…' : '选择 Agent'}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Status filter */}
+          <div className='flex items-center gap-1'>
+            <Button
+              variant={filter === 'all' ? 'default' : 'ghost'}
+              size='sm'
+              onClick={() => setFilter('all')}
+            >
+              全部
+            </Button>
+            <Button
+              variant={filter === 'active' ? 'default' : 'ghost'}
+              size='sm'
+              onClick={() => setFilter('active')}
+            >
+              进行中
+            </Button>
+            <Button
+              variant={filter === 'archived' ? 'default' : 'ghost'}
+              size='sm'
+              onClick={() => setFilter('archived')}
+            >
+              已归档
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -132,50 +181,92 @@ export default function SessionsPage() {
             <TableRow>
               <TableHead>标题</TableHead>
               <TableHead>Agent</TableHead>
-              <TableHead>消息数</TableHead>
               <TableHead>状态</TableHead>
               <TableHead>更新时间</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((session) => (
-              <TableRow key={session.id}>
-                <TableCell className='max-w-[240px] truncate font-medium'>
-                  {session.title}
-                </TableCell>
-                <TableCell className='text-muted-foreground text-sm'>
-                  {session.agent_name}
-                </TableCell>
-                <TableCell>{session.message_count}</TableCell>
-                <TableCell>
-                  {session.status === 'active' ? (
-                    <Badge variant='default'>进行中</Badge>
-                  ) : (
-                    <Badge variant='secondary'>已归档</Badge>
-                  )}
-                </TableCell>
-                <TableCell className='text-muted-foreground text-sm whitespace-nowrap'>
-                  {formatUpdatedAt(session.updated_at)}
-                </TableCell>
-                <TableCell>
-                  <div className='flex items-center gap-2'>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      className='gap-1.5'
-                      onClick={() => router.push('/dashboard/baize/chat')}
-                    >
-                      <IconMessageCircle size={15} />
-                      继续对话
-                    </Button>
-                    <Button variant='ghost' size='icon' disabled>
-                      <IconArchive size={15} />
-                    </Button>
-                  </div>
+            {agentsLoading || sessionsLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className='py-10 text-center'>
+                  <IconLoader2
+                    size={20}
+                    className='text-muted-foreground mx-auto animate-spin'
+                  />
                 </TableCell>
               </TableRow>
-            ))}
+            ) : !selectedAgentId ? (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className='text-muted-foreground py-10 text-center text-sm'
+                >
+                  请先选择一个 Agent
+                </TableCell>
+              </TableRow>
+            ) : sessions.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className='text-muted-foreground py-10 text-center text-sm'
+                >
+                  暂无会话记录
+                </TableCell>
+              </TableRow>
+            ) : (
+              sessions.map((session) => (
+                <TableRow key={session.id}>
+                  <TableCell className='max-w-[240px] truncate font-medium'>
+                    {session.title ?? '（无标题）'}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground text-sm'>
+                    {agentName(session.agent_id)}
+                  </TableCell>
+                  <TableCell>
+                    {session.status === 'active' ? (
+                      <Badge variant='default'>进行中</Badge>
+                    ) : (
+                      <Badge variant='secondary'>已归档</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground text-sm whitespace-nowrap'>
+                    {formatUpdatedAt(session.updated_at)}
+                  </TableCell>
+                  <TableCell>
+                    <div className='flex items-center gap-2'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className='gap-1.5'
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/baize/chat?agent=${session.agent_id}&session=${session.id}`
+                          )
+                        }
+                      >
+                        <IconMessageCircle size={15} />
+                        继续对话
+                      </Button>
+                      {session.status === 'active' && (
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          disabled={archiving === session.id}
+                          onClick={() => handleArchive(session)}
+                        >
+                          {archiving === session.id ? (
+                            <IconLoader2 size={15} className='animate-spin' />
+                          ) : (
+                            <IconArchive size={15} />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

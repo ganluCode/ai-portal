@@ -1,29 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
-import type { BaizeTokenPayload } from './server/lib/baize-auth';
 
-// Next.js middleware 运行在 Edge Runtime，不能用 ioredis
-// 这里只做签名验证，Redis 有效性验证在 Hono 层（API 请求时）做
-// 页面路由的 Redis 检查通过 /api/auth/me 在客户端做
+/**
+ * Next.js Edge Middleware — 路由保护
+ *
+ * Edge Runtime 不与 Baize 共享 JWT 密钥，故只检查 cookie 是否存在。
+ * 真正的 JWT 验证（decode + exp 检查）在 Hono authMiddleware 层完成。
+ * 若 token 无效，Baize 上游会返回 401，前端再触发重新登录。
+ */
 
 const publicPaths = [
   '/auth/sign-in',
   '/auth/sign-up',
   '/auth',
   '/api/auth/login',
-  '/api/auth/register'
+  '/api/auth/refresh'
 ];
 
 function isPublic(pathname: string) {
   return publicPaths.some((p) => pathname.startsWith(p));
 }
 
-const getSecret = () =>
-  process.env.JWT_SECRET || 'mock-secret-change-in-production';
-
 export default function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // API 路由由 Hono 自行鉴权
   if (pathname.startsWith('/api/')) {
     return NextResponse.next();
   }
@@ -38,15 +38,7 @@ export default function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/auth/sign-in', req.url));
   }
 
-  try {
-    // Edge 环境只验签名，Redis 失效检查在 API 层做
-    jwt.verify(token, getSecret()) as BaizeTokenPayload;
-    return NextResponse.next();
-  } catch {
-    const res = NextResponse.redirect(new URL('/auth/sign-in', req.url));
-    res.cookies.delete('token');
-    return res;
-  }
+  return NextResponse.next();
 }
 
 export const config = {

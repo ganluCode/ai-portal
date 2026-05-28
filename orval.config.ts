@@ -17,5 +17,22 @@ export default defineConfig({
         }
       }
     }
+  },
+  diting: {
+    input: {
+      target: './openapi/diting.json'
+    },
+    output: {
+      mode: 'tags-split',
+      target: './src/lib/api/diting',
+      client: 'fetch',
+      tsconfig: './tsconfig.orval.json',
+      override: {
+        mutator: {
+          path: './src/lib/api/diting/custom-fetch.ts',
+          name: 'customFetch'
+        }
+      }
+    }
   }
 });

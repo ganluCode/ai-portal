@@ -1,234 +1,325 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Separator } from '@/components/ui/separator';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
+import { useChatRuntime } from '@assistant-ui/react-ai-sdk';
+import { DefaultChatTransport } from 'ai';
+import type { UIMessage } from 'ai';
+import { Thread } from '@/components/assistant-ui/thread';
+import { ChatSidebar } from './_components/chat-sidebar';
+import type {
+  AgentResponse,
+  ChatMessageResponse
+} from '@/lib/api/baize/baizeAPI.schemas';
+import { listAgentsApiV1AgentsGet } from '@/lib/api/baize/agents/agents';
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem
-} from '@/components/ui/select';
-import {
-  IconSend,
-  IconRobot,
-  IconUser,
-  IconRefresh
-} from '@tabler/icons-react';
+  createSessionApiV1AgentsAgentIdSessionsPost,
+  listMessagesApiV1SessionsSessionIdMessagesGet
+} from '@/lib/api/baize/sessions/sessions';
 
-const AGENTS = [
-  { id: '1', name: '通用助手' },
-  { id: '2', name: '代码助手' },
-  { id: '3', name: '数据分析师' }
-];
+// ── 工具函数 ──────────────────────────────────────────────────────────────────
 
-interface Message {
-  id: string;
-  role: 'assistant' | 'user';
-  content: string;
-  created_at: string;
-}
+function toUIMessage(msg: ChatMessageResponse): UIMessage {
+  const role = msg.role as 'user' | 'assistant';
+  const parts: UIMessage['parts'] = [];
 
-const INIT_MESSAGES: Message[] = [
-  {
-    id: '1',
-    role: 'assistant',
-    content: '你好！我是通用助手，有什么可以帮助你的吗？',
-    created_at: '2026-03-25T10:00:00Z'
-  },
-  {
-    id: '2',
-    role: 'user',
-    content: '帮我介绍一下这个 Portal 系统',
-    created_at: '2026-03-25T10:01:00Z'
-  },
-  {
-    id: '3',
-    role: 'assistant',
-    content:
-      '这是一个 AI 工具集成平台（Portal），目前集成了以下子系统：\n\n• **白泽（Baize）** — AI Agent 管理、对话、会话记录和任务管理\n• **Huginn** — 自动化工作流引擎\n• **谛听（Diting）** — 系统监控\n\n您可以在左侧菜单切换不同子系统。如需进一步了解某个功能，请告诉我！',
-    created_at: '2026-03-25T10:01:30Z'
-  },
-  {
-    id: '4',
-    role: 'user',
-    content: '白泽支持哪些 AI 模型？',
-    created_at: '2026-03-25T10:02:00Z'
-  },
-  {
-    id: '5',
-    role: 'assistant',
-    content:
-      '白泽目前支持以下模型提供商：\n\n1. **OpenAI** — gpt-4o, gpt-4o-mini 等\n2. **Anthropic** — claude-opus-4-6, claude-sonnet-4-6 等\n3. **Ollama** — 本地部署的开源模型（llama3.2, mistral 等）\n\n具体可用模型取决于后端配置，可在「模型配置」页面查看。',
-    created_at: '2026-03-25T10:02:30Z'
+  // assistant 消息：若有 thinking 字段，先加 reasoning part
+  const thinking = (msg as ChatMessageResponse & { thinking?: string | null })
+    .thinking;
+  if (role === 'assistant' && thinking) {
+    parts.push({ type: 'reasoning', text: thinking, state: 'done' });
   }
-];
 
-function formatTime(isoString: string) {
-  const date = new Date(isoString);
-  return date.toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  parts.push({ type: 'text', text: msg.content, state: 'done' });
+
+  return { id: msg.id, role, parts };
 }
 
-export default function ChatPage() {
-  const [selectedAgentId, setSelectedAgentId] = useState('1');
-  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES);
-  const [input, setInput] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
+/** 前端消息缓存 */
+const messageCache = new Map<
+  string,
+  {
+    messages: ChatMessageResponse[];
+    oldestId: string | null;
+    hasMore: boolean;
+  }
+>();
+
+const PAGE_SIZE = 10;
+
+// ── 主容器 ────────────────────────────────────────────────────────────────────
+
+function ChatContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const agentId = searchParams.get('agent') ?? '';
+  const sessionId = searchParams.get('session') ?? '';
+
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const sidebarRefreshRef = useRef<(() => void) | null>(null);
+
+  // navKey：只在「显式导航」时自增（切 agent / 选会话 / 新对话），
+  // 用作 ChatThread 的 key —— 会话自动创建时不变，避免 re-mount 打断流式请求
+  const [navKey, setNavKey] = useState(0);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  const handleAgentChange = (agentId: string) => {
-    setSelectedAgentId(agentId);
-    const agent = AGENTS.find((a) => a.id === agentId);
-    setMessages([
-      {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `你好！我是${agent?.name}，有什么可以帮助你的吗？`,
-        created_at: new Date().toISOString()
+    listAgentsApiV1AgentsGet().then((res) => {
+      if (res.status === 200) {
+        setAgents(res.data);
+        if (!agentId && res.data.length > 0) {
+          router.replace(`?agent=${res.data[0].id}`);
+        }
       }
-    ]);
-  };
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleReset = () => {
-    setMessages(INIT_MESSAGES);
-    setSelectedAgentId('1');
-    setInput('');
-  };
-
-  const handleSend = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: trimmed,
-      created_at: new Date().toISOString()
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
-
-    setTimeout(() => {
-      const replyMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: '（连接 Baize 后可获得真实回复）',
-        created_at: new Date().toISOString()
-      };
-      setMessages((prev) => [...prev, replyMsg]);
-    }, 500);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const setAgentId = useCallback(
+    (id: string) => {
+      router.push(`?agent=${id}`);
+      setNavKey((k) => k + 1);
+    },
+    [router]
+  );
+  const setSessionId = useCallback(
+    (id: string) => {
+      router.push(`?agent=${agentId}&session=${id}`);
+      setNavKey((k) => k + 1);
+    },
+    [router, agentId]
+  );
+  const handleNewChat = useCallback(() => {
+    router.push(`?agent=${agentId}`);
+    setNavKey((k) => k + 1);
+  }, [router, agentId]);
 
   return (
-    <div className='flex h-full flex-col'>
-      {/* Header */}
-      <div className='flex items-center justify-between border-b px-4 py-3'>
-        <div className='flex items-center gap-3'>
-          <span className='text-muted-foreground text-sm font-medium'>
-            Agent：
-          </span>
-          <Select value={selectedAgentId} onValueChange={handleAgentChange}>
-            <SelectTrigger className='w-40'>
-              <SelectValue placeholder='选择 Agent' />
-            </SelectTrigger>
-            <SelectContent>
-              {AGENTS.map((agent) => (
-                <SelectItem key={agent.id} value={agent.id}>
-                  {agent.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          variant='ghost'
-          size='icon'
-          onClick={handleReset}
-          title='重置对话'
-        >
-          <IconRefresh className='h-4 w-4' />
-        </Button>
-      </div>
+    <div className='flex flex-1 overflow-hidden'>
+      <ChatSidebar
+        open={sidebarOpen}
+        onToggle={() => setSidebarOpen((o) => !o)}
+        agents={agents}
+        selectedAgentId={agentId}
+        onSelectAgent={setAgentId}
+        selectedSessionId={sessionId}
+        onSelectSession={setSessionId}
+        onNewChat={handleNewChat}
+        refreshRef={sidebarRefreshRef}
+      />
 
-      <Separator />
-
-      {/* Messages */}
-      <ScrollArea className='flex-1 px-4 py-4'>
-        <div className='flex flex-col gap-6'>
-          {messages.map((msg) => {
-            const isAssistant = msg.role === 'assistant';
-            return (
-              <div
-                key={msg.id}
-                className={`flex items-start gap-3 ${isAssistant ? 'flex-row' : 'flex-row-reverse'}`}
-              >
-                <Avatar className='h-8 w-8 shrink-0'>
-                  <AvatarFallback
-                    className={isAssistant ? 'bg-muted' : 'bg-primary'}
-                  >
-                    {isAssistant ? (
-                      <IconRobot className='text-muted-foreground h-4 w-4' />
-                    ) : (
-                      <IconUser className='text-primary-foreground h-4 w-4' />
-                    )}
-                  </AvatarFallback>
-                </Avatar>
-                <div
-                  className={`flex max-w-[70%] flex-col gap-1 ${isAssistant ? 'items-start' : 'items-end'}`}
-                >
-                  <div
-                    className={`rounded-2xl px-4 py-2.5 text-sm break-words whitespace-pre-wrap ${
-                      isAssistant
-                        ? 'bg-muted text-foreground'
-                        : 'bg-primary text-primary-foreground'
-                    }`}
-                  >
-                    {msg.content}
-                  </div>
-                  <span className='text-muted-foreground px-1 text-xs'>
-                    {formatTime(msg.created_at)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={bottomRef} />
-        </div>
-      </ScrollArea>
-
-      <Separator />
-
-      {/* Input Bar */}
-      <div className='flex items-center gap-2 px-4 py-3'>
-        <Input
-          className='flex-1'
-          placeholder='输入消息，Enter 发送...'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <Button size='icon' onClick={handleSend} disabled={!input.trim()}>
-          <IconSend className='h-4 w-4' />
-        </Button>
+      <div className='flex-1 overflow-hidden'>
+        {agentId ? (
+          <ChatThread
+            key={`${agentId}-${navKey}`}
+            agentId={agentId}
+            sessionId={sessionId}
+            onSessionCreated={(sid) => {
+              // 仅更新 URL（不自增 navKey）→ 不 re-mount，流式请求不中断
+              router.replace(`?agent=${agentId}&session=${sid}`);
+              sidebarRefreshRef.current?.();
+            }}
+          />
+        ) : (
+          <div className='text-muted-foreground flex h-full items-center justify-center text-sm'>
+            请在左侧选择一个助手开始对话
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// ── 对话区 ────────────────────────────────────────────────────────────────────
+
+function ChatThread({
+  agentId,
+  sessionId,
+  onSessionCreated
+}: {
+  agentId: string;
+  sessionId: string;
+  onSessionCreated?: (sessionId: string) => void;
+}) {
+  const [allMessages, setAllMessages] = useState<ChatMessageResponse[]>([]);
+  const [loading, setLoading] = useState(!!sessionId);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [version, setVersion] = useState(0);
+  // mount 时的 sessionId —— 只按它加载一次历史，会话自动创建后不重复加载
+  const mountSessionId = useRef(sessionId).current;
+  // 实际使用的 sessionId（新对话时在发送第一条消息后填充）
+  const effectiveSessionId = useRef(sessionId);
+
+  // 仅在 mount 时按初始 sessionId 加载历史
+  useEffect(() => {
+    if (!mountSessionId) {
+      setAllMessages([]);
+      setHasMore(false);
+      setLoading(false);
+      return;
+    }
+
+    const cached = messageCache.get(mountSessionId);
+    if (cached) {
+      setAllMessages(cached.messages);
+      setHasMore(cached.hasMore);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    listMessagesApiV1SessionsSessionIdMessagesGet(mountSessionId, {
+      limit: PAGE_SIZE
+    })
+      .then((res) => {
+        if (res.status === 200) {
+          const items = res.data.items;
+          const more = items.length >= PAGE_SIZE;
+          messageCache.set(mountSessionId, {
+            messages: items,
+            oldestId: items.length > 0 ? items[0].id : null,
+            hasMore: more
+          });
+          setAllMessages(items);
+          setHasMore(more);
+        }
+      })
+      .catch(() => setAllMessages([]))
+      .finally(() => setLoading(false));
+  }, [mountSessionId]);
+
+  // 加载更多（往上翻页）
+  const loadMore = useCallback(async () => {
+    if (!mountSessionId || loadingMore || !hasMore) return;
+    const cached = messageCache.get(mountSessionId);
+    if (!cached?.oldestId) return;
+
+    setLoadingMore(true);
+    try {
+      const res = await listMessagesApiV1SessionsSessionIdMessagesGet(
+        mountSessionId,
+        {
+          limit: PAGE_SIZE,
+          before: cached.oldestId
+        }
+      );
+      if (res.status === 200) {
+        const older = res.data.items;
+        const merged = [...older, ...cached.messages];
+        const more = older.length >= PAGE_SIZE;
+        messageCache.set(mountSessionId, {
+          messages: merged,
+          oldestId: older.length > 0 ? older[0].id : cached.oldestId,
+          hasMore: more
+        });
+        setAllMessages(merged);
+        setHasMore(more);
+        setVersion((v) => v + 1); // 强制 re-mount Thread 加载新 messages
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [mountSessionId, loadingMore, hasMore]);
+
+  const uiMessages = allMessages.map(toUIMessage);
+
+  if (loading) {
+    return (
+      <div className='text-muted-foreground flex h-full items-center justify-center text-sm'>
+        加载对话历史…
+      </div>
+    );
+  }
+
+  return (
+    <ChatRuntime
+      key={`runtime-${version}`}
+      agentId={agentId}
+      sessionId={sessionId}
+      initialMessages={uiMessages}
+      hasMore={hasMore}
+      loadingMore={loadingMore}
+      onLoadMore={loadMore}
+      sessionIdRef={effectiveSessionId}
+      onSessionCreated={onSessionCreated}
+    />
+  );
+}
+
+// ── Runtime 包装（独立组件，方便 re-mount）────────────────────────────────────
+
+function ChatRuntime({
+  agentId,
+  sessionId,
+  initialMessages,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  sessionIdRef,
+  onSessionCreated
+}: {
+  agentId: string;
+  sessionId: string;
+  initialMessages: UIMessage[];
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  sessionIdRef: React.MutableRefObject<string>;
+  onSessionCreated?: (sessionId: string) => void;
+}) {
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+
+  const runtime = useChatRuntime({
+    transport: new DefaultChatTransport({
+      api: '/api/chat',
+      // 使用 prepareSendMessagesRequest 动态注入 session_id
+      prepareSendMessagesRequest: async ({ messages: msgs }) => {
+        // 新对话：发第一条消息时才创建 session
+        if (!sessionIdRef.current) {
+          const res = await createSessionApiV1AgentsAgentIdSessionsPost(
+            agentId,
+            {}
+          );
+          if (res.status === 201) {
+            sessionIdRef.current = res.data.id;
+            onSessionCreated?.(res.data.id);
+          }
+        }
+
+        return {
+          body: {
+            agent_id: agentId,
+            session_id: sessionIdRef.current,
+            thinking: thinkingEnabled,
+            messages: msgs
+          }
+        };
+      }
+    }),
+    messages: initialMessages
+  });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <Thread
+        hasMore={hasMore}
+        loadingMore={loadingMore}
+        onLoadMore={onLoadMore}
+        thinkingEnabled={thinkingEnabled}
+        onThinkingToggle={() => setThinkingEnabled((v) => !v)}
+      />
+    </AssistantRuntimeProvider>
+  );
+}
+
+// ── 页面入口 ──────────────────────────────────────────────────────────────────
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatContent />
+    </Suspense>
   );
 }

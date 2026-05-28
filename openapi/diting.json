@@ -230,6 +230,57 @@
         }
       }
     },
+    "/api/projects/{project_id}/clone": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Clone Project",
+        "description": "克隆项目仓库到本地工作区（根据项目的 repo_url / branch）",
+        "operationId": "clone_project_api_projects__project_id__clone_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/projects/{project_id}/scan": {
       "post": {
         "tags": [
@@ -1126,6 +1177,18 @@
         ],
         "title": "AskRequest"
       },
+      "CloneRequest": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "若目标目录已存在则先删除",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "CloneRequest"
+      },
       "EnhanceRequest": {
         "properties": {
           "clean": {
@@ -1254,10 +1317,44 @@
             "type": "string",
             "title": "Source Path"
           },
+          "resolved_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Path",
+            "description": "source_path 解析后的完整绝对路径"
+          },
           "description": {
             "type": "string",
             "title": "Description",
             "default": ""
+          },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
           },
           "scan_status": {
             "type": "string",
@@ -1341,12 +1438,36 @@
           "source_path": {
             "type": "string",
             "title": "Source Path",
-            "description": "源码/字节码根目录绝对路径"
+            "description": "源码根目录：绝对路径或相对 DITING_WORKSPACE 的相对路径"
           },
           "description": {
             "type": "string",
             "title": "Description",
             "default": ""
+          },
+          "repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Url",
+            "description": "Git 仓库 URL（github/gitee 等）"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch",
+            "description": "默认分支，留空自动使用仓库默认分支"
           }
         },
         "type": "object",

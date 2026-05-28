@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   IconPlus,
   IconEdit,
@@ -8,8 +8,10 @@ import {
   IconScan,
   IconSparkles,
   IconCode,
-  IconBrandPython
+  IconBrandPython,
+  IconLoader2
 } from '@tabler/icons-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -49,22 +51,23 @@ import {
   TableRow
 } from '@/components/ui/table';
 
-// ── 类型 ─────────────────────────────────────────────────────────
-type ScanStatus = 'pending' | 'scanned' | 'enhanced' | 'error';
-type Language = 'java' | 'python';
+import {
+  listProjectsApiProjectsGet,
+  createProjectApiProjectsPost,
+  updateProjectApiProjectsProjectIdPut,
+  deleteProjectApiProjectsProjectIdDelete,
+  scanProjectApiProjectsProjectIdScanPost,
+  enhanceProjectApiProjectsProjectIdEnhancePost
+} from '@/lib/api/diting/projects/projects';
+import type {
+  Project,
+  ProjectScanStatus
+} from '@/lib/api/diting/diTingAPI.schemas';
+import { ProjectCreateLanguage } from '@/lib/api/diting/diTingAPI.schemas';
 
-interface Project {
-  id: string;
-  name: string;
-  language: Language;
-  source_path: string;
-  description: string;
-  scan_status: ScanStatus;
-  scanned_at: string | null;
-  enhanced_at: string | null;
-  schema_version: number;
-  node_stats: Record<string, number>;
-}
+// ── 类型 ─────────────────────────────────────────────────────────
+type Language =
+  (typeof ProjectCreateLanguage)[keyof typeof ProjectCreateLanguage];
 
 interface ProjectForm {
   id: string;
@@ -73,70 +76,6 @@ interface ProjectForm {
   source_path: string;
   description: string;
 }
-
-// ── Mock 数据 ─────────────────────────────────────────────────────
-const INIT_PROJECTS: Project[] = [
-  {
-    id: 'order-service',
-    name: '订单服务',
-    language: 'java',
-    source_path: '/opt/services/order-service/target/classes',
-    description: '处理订单创建、支付和配送流程',
-    scan_status: 'enhanced',
-    scanned_at: '2026-03-20T10:00:00Z',
-    enhanced_at: '2026-03-20T10:30:00Z',
-    schema_version: 3,
-    node_stats: { Class: 42, Method: 218, Field: 95, Interface: 8 }
-  },
-  {
-    id: 'user-service',
-    name: '用户服务',
-    language: 'java',
-    source_path: '/opt/services/user-service/target/classes',
-    description: '用户注册、认证和权限管理',
-    scan_status: 'scanned',
-    scanned_at: '2026-03-22T14:00:00Z',
-    enhanced_at: null,
-    schema_version: 2,
-    node_stats: { Class: 28, Method: 134, Field: 61, Interface: 5 }
-  },
-  {
-    id: 'data-pipeline',
-    name: '数据管道',
-    language: 'python',
-    source_path: '/opt/services/data-pipeline',
-    description: '数据采集、清洗和入库流水线',
-    scan_status: 'error',
-    scanned_at: null,
-    enhanced_at: null,
-    schema_version: 0,
-    node_stats: {}
-  },
-  {
-    id: 'notify-service',
-    name: '通知服务',
-    language: 'java',
-    source_path: '/opt/services/notify-service/target/classes',
-    description: '邮件、短信和推送通知',
-    scan_status: 'pending',
-    scanned_at: null,
-    enhanced_at: null,
-    schema_version: 0,
-    node_stats: {}
-  },
-  {
-    id: 'ai-router',
-    name: 'AI 路由',
-    language: 'python',
-    source_path: '/opt/services/ai-router',
-    description: '统一 AI 模型调用网关',
-    scan_status: 'enhanced',
-    scanned_at: '2026-03-25T09:00:00Z',
-    enhanced_at: '2026-03-25T09:20:00Z',
-    schema_version: 1,
-    node_stats: { Module: 12, Function: 87, Class: 9 }
-  }
-];
 
 const EMPTY_FORM: ProjectForm = {
   id: '',
@@ -147,9 +86,13 @@ const EMPTY_FORM: ProjectForm = {
 };
 
 // ── 辅助组件 ──────────────────────────────────────────────────────
-function ScanStatusBadge({ status }: { status: ScanStatus }) {
+function ScanStatusBadge({
+  status
+}: {
+  status: ProjectScanStatus | undefined;
+}) {
   const map: Record<
-    ScanStatus,
+    ProjectScanStatus,
     {
       label: string;
       variant: 'default' | 'secondary' | 'destructive' | 'outline';
@@ -160,18 +103,19 @@ function ScanStatusBadge({ status }: { status: ScanStatus }) {
     enhanced: { label: '已增强', variant: 'default' },
     error: { label: '扫描失败', variant: 'destructive' }
   };
-  const { label, variant } = map[status];
+  const key: ProjectScanStatus = status ?? 'pending';
+  const { label, variant } = map[key];
   return (
     <Badge
       variant={variant}
-      className={status === 'enhanced' ? 'bg-green-600 hover:bg-green-700' : ''}
+      className={key === 'enhanced' ? 'bg-green-600 hover:bg-green-700' : ''}
     >
       {label}
     </Badge>
   );
 }
 
-function LangIcon({ lang }: { lang: Language }) {
+function LangIcon({ lang }: { lang: string }) {
   return lang === 'python' ? (
     <IconBrandPython size={16} className='mr-1 inline text-blue-500' />
   ) : (
@@ -179,15 +123,21 @@ function LangIcon({ lang }: { lang: Language }) {
   );
 }
 
-function fmtDate(iso: string | null) {
+function fmtDate(iso: string | null | undefined) {
   if (!iso) return '—';
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function errMsg(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // ── 主页面 ────────────────────────────────────────────────────────
 export default function DitingProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>(INIT_PROJECTS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectForm>(EMPTY_FORM);
 
   // dialog 状态
@@ -195,24 +145,46 @@ export default function DitingProjectsPage() {
   const [editTarget, setEditTarget] = useState<Project | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 
+  // ── 加载列表 ──────────────────────────────────────────────────
+  const loadProjects = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await listProjectsApiProjectsGet({ page: 1, size: 100 });
+      if (res.status === 200) {
+        setProjects(res.data.items);
+      } else {
+        throw new Error('加载项目列表失败');
+      }
+    } catch (e) {
+      toast.error(`加载项目失败: ${errMsg(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
   // ── 新建 ──────────────────────────────────────────────────────
-  function handleCreate() {
+  async function handleCreate() {
     if (!form.id || !form.language || !form.source_path) return;
-    const p: Project = {
-      id: form.id,
-      name: form.name || form.id,
-      language: form.language as Language,
-      source_path: form.source_path,
-      description: form.description,
-      scan_status: 'pending',
-      scanned_at: null,
-      enhanced_at: null,
-      schema_version: 0,
-      node_stats: {}
-    };
-    setProjects((prev) => [...prev, p]);
-    setForm(EMPTY_FORM);
-    setCreateOpen(false);
+    try {
+      const res = await createProjectApiProjectsPost({
+        id: form.id,
+        name: form.name || undefined,
+        language: form.language as Language,
+        source_path: form.source_path,
+        description: form.description || undefined
+      });
+      if (res.status !== 201) throw new Error('创建失败');
+      toast.success(`项目 ${form.id} 已创建`);
+      setForm(EMPTY_FORM);
+      setCreateOpen(false);
+      await loadProjects();
+    } catch (e) {
+      toast.error(`创建项目失败: ${errMsg(e)}`);
+    }
   }
 
   // ── 编辑 ──────────────────────────────────────────────────────
@@ -220,66 +192,69 @@ export default function DitingProjectsPage() {
     setForm({
       id: p.id,
       name: p.name,
-      language: p.language,
+      language: (p.language as Language) || '',
       source_path: p.source_path,
-      description: p.description
+      description: p.description ?? ''
     });
     setEditTarget(p);
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!editTarget || !form.source_path) return;
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === editTarget.id
-          ? {
-              ...p,
-              name: form.name || p.name,
-              source_path: form.source_path,
-              description: form.description
-            }
-          : p
-      )
-    );
-    setEditTarget(null);
-    setForm(EMPTY_FORM);
+    try {
+      const res = await updateProjectApiProjectsProjectIdPut(editTarget.id, {
+        name: form.name || null,
+        source_path: form.source_path,
+        description: form.description || null
+      });
+      if (res.status !== 200) throw new Error('更新失败');
+      toast.success(`项目 ${editTarget.id} 已更新`);
+      setEditTarget(null);
+      setForm(EMPTY_FORM);
+      await loadProjects();
+    } catch (e) {
+      toast.error(`更新项目失败: ${errMsg(e)}`);
+    }
   }
 
   // ── 删除 ──────────────────────────────────────────────────────
-  function handleDelete() {
+  async function handleDelete() {
     if (!deleteTarget) return;
-    setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-    setDeleteTarget(null);
+    try {
+      await deleteProjectApiProjectsProjectIdDelete(deleteTarget.id);
+      toast.success(`项目 ${deleteTarget.id} 已删除`);
+      setDeleteTarget(null);
+      await loadProjects();
+    } catch (e) {
+      toast.error(`删除项目失败: ${errMsg(e)}`);
+    }
   }
 
-  // ── 扫描 / 增强（mock：直接更新状态）─────────────────────────
-  function handleScan(id: string) {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              scan_status: 'scanned',
-              scanned_at: new Date().toISOString(),
-              schema_version: p.schema_version + 1
-            }
-          : p
-      )
-    );
+  // ── 扫描 / 增强 ───────────────────────────────────────────────
+  async function handleScan(id: string) {
+    setBusyId(id);
+    try {
+      await scanProjectApiProjectsProjectIdScanPost(id, {});
+      toast.success(`项目 ${id} 扫描已启动`);
+      await loadProjects();
+    } catch (e) {
+      toast.error(`扫描失败: ${errMsg(e)}`);
+    } finally {
+      setBusyId(null);
+    }
   }
 
-  function handleEnhance(id: string) {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              scan_status: 'enhanced',
-              enhanced_at: new Date().toISOString()
-            }
-          : p
-      )
-    );
+  async function handleEnhance(id: string) {
+    setBusyId(id);
+    try {
+      await enhanceProjectApiProjectsProjectIdEnhancePost(id, {});
+      toast.success(`项目 ${id} 增强已启动`);
+      await loadProjects();
+    } catch (e) {
+      toast.error(`增强失败: ${errMsg(e)}`);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   return (
@@ -318,89 +293,114 @@ export default function DitingProjectsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {projects.map((p) => {
-              const totalNodes = Object.values(p.node_stats).reduce(
-                (s, n) => s + n,
-                0
-              );
-              return (
-                <TableRow key={p.id}>
-                  <TableCell className='font-mono text-sm'>{p.id}</TableCell>
-                  <TableCell>
-                    <div className='font-medium'>{p.name}</div>
-                    {p.description && (
-                      <div className='text-muted-foreground max-w-48 truncate text-xs'>
-                        {p.description}
+            {loading ? (
+              <TableRow>
+                <TableCell
+                  colSpan={8}
+                  className='text-muted-foreground py-8 text-center'
+                >
+                  <IconLoader2 size={16} className='mr-2 inline animate-spin' />
+                  加载中…
+                </TableCell>
+              </TableRow>
+            ) : projects.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={8}
+                  className='text-muted-foreground py-8 text-center'
+                >
+                  暂无项目
+                </TableCell>
+              </TableRow>
+            ) : (
+              projects.map((p) => {
+                const nodeStats = p.node_stats ?? {};
+                const totalNodes = Object.values(nodeStats).reduce(
+                  (s, n) => s + n,
+                  0
+                );
+                const status: ProjectScanStatus = p.scan_status ?? 'pending';
+                const isBusy = busyId === p.id;
+                return (
+                  <TableRow key={p.id}>
+                    <TableCell className='font-mono text-sm'>{p.id}</TableCell>
+                    <TableCell>
+                      <div className='font-medium'>{p.name}</div>
+                      {p.description && (
+                        <div className='text-muted-foreground max-w-48 truncate text-xs'>
+                          {p.description}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <LangIcon lang={p.language} />
+                      {p.language}
+                    </TableCell>
+                    <TableCell className='text-muted-foreground max-w-48 truncate font-mono text-xs'>
+                      {p.source_path}
+                    </TableCell>
+                    <TableCell>
+                      <ScanStatusBadge status={status} />
+                    </TableCell>
+                    <TableCell className='text-sm'>
+                      {fmtDate(p.scanned_at)}
+                    </TableCell>
+                    <TableCell className='text-sm'>
+                      {totalNodes > 0 ? (
+                        <span title={JSON.stringify(nodeStats, null, 2)}>
+                          {totalNodes}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell className='text-right'>
+                      <div className='flex justify-end gap-1'>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          title='扫描'
+                          disabled={isBusy}
+                          onClick={() => handleScan(p.id)}
+                        >
+                          {isBusy ? (
+                            <IconLoader2 size={15} className='animate-spin' />
+                          ) : (
+                            <IconScan size={15} />
+                          )}
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          title='增强'
+                          disabled={isBusy || status !== 'scanned'}
+                          onClick={() => handleEnhance(p.id)}
+                        >
+                          <IconSparkles size={15} />
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          title='编辑'
+                          onClick={() => openEdit(p)}
+                        >
+                          <IconEdit size={15} />
+                        </Button>
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          title='删除'
+                          className='text-destructive hover:text-destructive'
+                          onClick={() => setDeleteTarget(p)}
+                        >
+                          <IconTrash size={15} />
+                        </Button>
                       </div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <LangIcon lang={p.language} />
-                    {p.language}
-                  </TableCell>
-                  <TableCell className='text-muted-foreground max-w-48 truncate font-mono text-xs'>
-                    {p.source_path}
-                  </TableCell>
-                  <TableCell>
-                    <ScanStatusBadge status={p.scan_status} />
-                  </TableCell>
-                  <TableCell className='text-sm'>
-                    {fmtDate(p.scanned_at)}
-                  </TableCell>
-                  <TableCell className='text-sm'>
-                    {totalNodes > 0 ? (
-                      <span title={JSON.stringify(p.node_stats, null, 2)}>
-                        {totalNodes}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                  </TableCell>
-                  <TableCell className='text-right'>
-                    <div className='flex justify-end gap-1'>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        title='扫描'
-                        disabled={
-                          p.scan_status === 'scanned' ||
-                          p.scan_status === 'enhanced'
-                        }
-                        onClick={() => handleScan(p.id)}
-                      >
-                        <IconScan size={15} />
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        title='增强'
-                        disabled={p.scan_status !== 'scanned'}
-                        onClick={() => handleEnhance(p.id)}
-                      >
-                        <IconSparkles size={15} />
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        title='编辑'
-                        onClick={() => openEdit(p)}
-                      >
-                        <IconEdit size={15} />
-                      </Button>
-                      <Button
-                        size='sm'
-                        variant='ghost'
-                        title='删除'
-                        className='text-destructive hover:text-destructive'
-                        onClick={() => setDeleteTarget(p)}
-                      >
-                        <IconTrash size={15} />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
           </TableBody>
         </Table>
       </div>

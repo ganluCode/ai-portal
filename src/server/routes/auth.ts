@@ -2,99 +2,104 @@ import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import { prisma } from '@/lib/prisma';
-import { verifyToken } from '../lib/jwt';
-import { baizeAuth } from '../lib/baize-auth';
+import { baizeClient, type BaizeUserResponse } from '../lib/baize-auth';
 import { authMiddleware } from '../middleware/auth';
+import type { AuthUser } from '@/stores/auth';
 
 const auth = new Hono();
 
-const registerSchema = z.object({
-  email: z.email(),
-  password: z.string().min(6),
-  name: z.string().min(1).optional()
-});
-
 // 支持 email 或 username 登录
 const loginSchema = z.object({
-  identifier: z.string().min(1), // email 或 username
+  identifier: z.string().min(1),
   password: z.string().min(1)
 });
 
-// POST /api/auth/register
-auth.post('/register', zValidator('json', registerSchema), async (c) => {
-  const { email, password, name } = c.req.valid('json');
+/** Baize snake_case → Portal camelCase */
+function mapUser(u: BaizeUserResponse): AuthUser {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role as AuthUser['role'],
+    avatar: u.avatar,
+    isActive: u.is_active,
+    createdAt: u.created_at
+  };
+}
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return c.json({ error: 'Email already in use' }, 409);
-  }
-
-  const hashed = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({
-    data: { email, password: hashed, name }
+function setCookieWithToken(
+  c: Parameters<typeof setCookie>[0],
+  token: string,
+  expiresIn: number
+) {
+  setCookie(c, 'token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'Lax',
+    maxAge: expiresIn
   });
-
-  const { password: _, ...safeUser } = user;
-  return c.json({ user: safeUser }, 201);
-});
+}
 
 // POST /api/auth/login
 auth.post('/login', zValidator('json', loginSchema), async (c) => {
   const { identifier, password } = c.req.valid('json');
 
-  // 含 @ 按 email 查，否则按 name（username）查
-  const isEmail = identifier.includes('@');
-  const user = await prisma.user.findUnique({
-    where: isEmail ? { email: identifier } : { name: identifier }
-  });
+  try {
+    const tokenRes = await baizeClient.login(identifier, password);
+    const baizeUser = await baizeClient.getMe(tokenRes.access_token);
 
-  if (!user || !user.isActive) {
-    return c.json({ error: 'Invalid credentials' }, 401);
+    setCookieWithToken(c, tokenRes.access_token, tokenRes.expires_in);
+
+    return c.json({ user: mapUser(baizeUser) });
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401 || status === 403) {
+      return c.json({ error: 'Invalid credentials' }, 401);
+    }
+    return c.json({ error: 'Authentication service unavailable' }, 503);
   }
-
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) {
-    return c.json({ error: 'Invalid credentials' }, 401);
-  }
-
-  // 调 Baize 认证接口取 JWT（mock 模式下自签并写 Redis）
-  const token = await baizeAuth.login({
-    sub: user.id,
-    email: user.email,
-    role: user.role
-  });
-
-  setCookie(c, 'token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'Lax',
-    maxAge: 60 * 60 * 24 * 7
-  });
-
-  const { password: _, ...safeUser } = user;
-  return c.json({ user: safeUser });
 });
 
 // GET /api/auth/me
 auth.get('/me', authMiddleware, async (c) => {
-  const { sub } = c.get('user');
-  const user = await prisma.user.findUnique({ where: { id: sub } });
-  if (!user) return c.json({ error: 'User not found' }, 404);
-  const { password: _, ...safeUser } = user;
-  return c.json({ user: safeUser });
+  const token = c.get('token');
+  try {
+    const baizeUser = await baizeClient.getMe(token);
+    return c.json({ user: mapUser(baizeUser) });
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401) return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: 'Failed to fetch user' }, 502);
+  }
 });
 
 // POST /api/auth/logout
 auth.post('/logout', async (c) => {
   const token = getCookie(c, 'token');
   if (token) {
-    // 通知 Baize 失效 Redis key（mock 模式下直接删）
-    await baizeAuth.logout(token);
+    await baizeClient.logout(token); // best-effort
   }
   deleteCookie(c, 'token');
   return c.json({ ok: true });
+});
+
+// POST /api/auth/refresh
+auth.post('/refresh', async (c) => {
+  const token = getCookie(c, 'token');
+  if (!token) return c.json({ error: 'Unauthorized' }, 401);
+
+  try {
+    const tokenRes = await baizeClient.refresh(token);
+    setCookieWithToken(c, tokenRes.access_token, tokenRes.expires_in);
+    return c.json({ ok: true });
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401) {
+      deleteCookie(c, 'token');
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    return c.json({ error: 'Refresh failed' }, 502);
+  }
 });
 
 export default auth;
